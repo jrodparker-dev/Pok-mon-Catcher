@@ -854,6 +854,18 @@ async function copyPCToClipboard() {
               {stage === 'broke' && <div className="crack" />}
             </div>
           )}
+          {/* Mobile catch rate badge (bottom-right) */}
+{(() => {
+  const r = currentEffectiveCaptureRate();
+  const pct = Math.round((r.total / 255) * 100);
+  return (
+    <div className="mobileCatchCorner" aria-label="Current catch rate">
+      <div className="mccTop">{r.total}/255</div>
+      <div className="mccBot">{pct}%</div>
+    </div>
+  );
+})()}
+
         </div>
 
         <div className="subInfo">

@@ -969,6 +969,38 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
     padding: 0;
   }
 }
+/* Mobile catch rate badge pinned in the encounter square */
+.mobileCatchCorner {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.05;
+  pointer-events: none; /* don't block taps */
+}
+
+.mobileCatchCorner .mccTop {
+  font-size: 14px;
+}
+
+.mobileCatchCorner .mccBot {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+/* Hide on desktop */
+@media (min-width: 901px) {
+  .mobileCatchCorner {
+    display: none;
+  }
+}
 
 
 /* Mobile battle controls (moves under balls)
