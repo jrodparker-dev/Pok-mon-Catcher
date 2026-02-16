@@ -8,13 +8,13 @@ import { getEvolutionOptions } from './evolution.js';
 import { getRandomSpawnableDexId } from './dexLocal.js';
 import { spriteFallbacksFromBundle } from './sprites.js';
 
-const SHINY_CHANCE = 0.05; // 5% (set to 0.01 for 1%)
+const SHINY_CHANCE = 0.025; // 2.5%
 
 
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
 
-import { pickWeightedRarity, makeBuff, RARITIES } from './rarity.js';
+import { pickWeightedRarity, makeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
@@ -40,7 +40,7 @@ export default function App() {
       caught: (loaded.caught ?? base.caught ?? []).map((m) => {
         const dexNum = m.dexId ?? m.dexNum ?? m.num ?? (typeof m.id === 'number' ? m.id : undefined);
         const formId = m.formId ?? m.speciesId ?? m.dexIdString ?? m.dexIdPS ?? (typeof m.dexId === 'string' ? m.dexId : null) ?? toID(m.name);
-        return { ...m, dexId: typeof dexNum === 'number' ? dexNum : m.dexId, formId: formId, speciesId: m.speciesId ?? formId };
+        return { ...m, dexId: typeof dexNum === 'number' ? dexNum : m.dexId, formId: formId, speciesId: m.speciesId ?? formId, isDelta: !!(m.isDelta || m.delta || m.buff?.kind === 'delta-typing') };
       }),
     };
   });
@@ -337,6 +337,8 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
     rarity: mon.rarity,
     badge: mon.badge,
     buff: mon.buff,
+    isDelta: !!(mon.isDelta || mon.buff?.kind === 'delta-typing'),
+    types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
   };
 
   // Rebuild like catching, but preserve uid + caughtAt + prevAbilities
@@ -347,9 +349,10 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
 
   // Ability history
   evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
+  evolvedRecord.isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
 
   // If Delta typing, KEEP existing delta typing (the “buff”)
-  if (mon.buff?.kind === 'delta-typing') {
+  if (mon.isDelta || mon.buff?.kind === 'delta-typing') {
     evolvedRecord.types = mon.types;
   }
 
@@ -383,6 +386,8 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
       const rarity = pickWeightedRarity();
       const buff = makeBuff(rarity.key, bundle);
       const isShiny = Math.random() < SHINY_CHANCE;
+      const isDelta = rollDelta(rarity.key);
+      const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
 
       // Update encounter tracker (seen)
       setSave(prev => {
@@ -392,6 +397,7 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
         const rk = rarity.key;
         if (e[rk]) e[rk] = { ...e[rk], seen: (e[rk].seen ?? 0) + 1 };
         if (isShiny) e.shiny = { ...e.shiny, seen: (e.shiny.seen ?? 0) + 1 };
+        if (isDelta) e.delta = { ...e.delta, seen: (e.delta?.seen ?? 0) + 1 };
         return { ...cur, encounter: e };
       });
 
@@ -401,12 +407,16 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
       const spriteCandidates = [...psCandidates, finalFallback].filter(Boolean);
       const spriteUrlResolved = spriteCandidates[0] || "";
 
+      const badge = isDelta ? DELTA_BADGE : rarity.badge;
+
       setWild({
         ...bundle,
         rarity: rarity.key,
-        badge: rarity.badge,
+        badge,
         buff,
         shiny: isShiny,
+        types: rolledTypesForWild,
+        isDelta: isDelta,
         spriteUrl: spriteUrlResolved,
         fallbackSprite: finalFallback,
       });
@@ -496,9 +506,7 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
 
     // Delta typing override
     const baseTypes = w.types ?? [];
-const types = w.buff?.kind === 'delta-typing'
-  ? rollDeltaTypes(baseTypes)
-  : baseTypes;
+const types = w?.isDelta ? rollDeltaTypes(baseTypes) : baseTypes;
 
 
     const baseStats = w.baseStats ?? {};
@@ -535,6 +543,7 @@ if (isShiny) {
 
       spriteUrl: spriteUrlResolved,
       shiny: !!isShiny,
+      isDelta: !!w?.isDelta,
       shinyBoostStat,
 
       baseStats,
@@ -602,6 +611,7 @@ const caught = Math.random() < chance;
             const rk = wild.rarity;
             if (e[rk]) e[rk] = { ...e[rk], caught: (e[rk].caught ?? 0) + 1 };
             if (isShiny) e.shiny = { ...e.shiny, caught: (e.shiny.caught ?? 0) + 1 };
+            if (record?.isDelta) e.delta = { ...e.delta, caught: (e.delta?.caught ?? 0) + 1 };
 
             return { ...cur, caught: nextCaught, encounter: e };
           });
@@ -659,7 +669,8 @@ function formatBuffLine(mon) {
     }
   }
   if (mon?.shiny) parts.push('Shiny');
-  if (mon?.types && Array.isArray(mon.types) && mon.buff?.kind === 'delta-typing') {
+  if (mon?.isDelta) parts.push('Delta Typing');
+  if (mon?.types && Array.isArray(mon.types) && mon.isDelta) {
     parts.push(`Typing: ${mon.types.map(t => toShowdownName(t)).join(' / ')}`);
   }
   if (!parts.length) return '';
@@ -1175,16 +1186,23 @@ async function copyPCToClipboard() {
               <span className="trackerPair"><PokeballIcon size={14} />{encounter?.shiny?.caught ?? 0}</span>
             </div>
           </div>
+          <div className="trackerRow">
+            <div className="trackerIcon" title="Delta">Δ</div>
+            <div className="trackerCounts">
+              <span className="trackerPair"><span className="trackerSym" title="Delta seen">👁</span>{encounter?.delta?.seen ?? 0}</span>
+              <span className="trackerPair"><PokeballIcon size={14} />{encounter?.delta?.caught ?? 0}</span>
+            </div>
+          </div>
         
 
 <div className="trackerRow trackerTotalRow">
   <div className="trackerIcon" title="Total">Σ</div>
   <div className="trackerCounts">
     <span className="trackerPair"><span className="trackerSym" title="Total seen">👁</span>{
-      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny').reduce((a, [, x]) => a + (x?.seen || 0), 0)
+      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.seen || 0), 0)
     }</span>
     <span className="trackerPair"><PokeballIcon size={14} />{
-      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny').reduce((a, [, x]) => a + (x?.caught || 0), 0)
+      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.caught || 0), 0)
     }</span>
   </div>
 </div>

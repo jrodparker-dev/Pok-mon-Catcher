@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import RarityBadge from './RarityBadge.jsx';
 import { getEvolutionOptions } from '../evolution.js';
 import { getDexById } from '../dexLocal.js';
 import { rollRandomMoveIds, getMoveDisplay } from '../randomMoveTokens.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
+import { RARITIES, DELTA_BADGE } from '../rarity.js';
 
 const STAT_ORDER = [
   ['hp', 'HP'],
@@ -110,13 +112,18 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
 
   if (!mon) return null;
 
+  const rarityBadge = (mon.isDelta || mon.buff?.kind === 'delta-typing')
+    ? DELTA_BADGE
+    : (RARITIES.find(r => r.key === mon.rarity)?.badge ?? null);
+
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
       <div className="modalCard">
         <div className="modalHeader">
           <div>
-            <div className="modalTitle">
-              #{mon.dexId ?? mon.id} {cap(mon.name)}{mon.shiny ? ' ✨' : ''}
+            <div className="modalTitle" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {rarityBadge ? <RarityBadge badge={rarityBadge} size={18} /> : null}
+              <span>#{mon.dexId ?? mon.id} {cap(mon.name)}{mon.shiny ? ' ✨' : ''}</span>
             </div>
             <div className="modalSub">
               {cap(mon.rarity)} • {mon.buff?.kind ?? 'none'}{mon.shiny ? ' • ✨ Shiny' : ''}

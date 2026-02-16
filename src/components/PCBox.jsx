@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import PokemonDetail from './PokemonDetail.jsx';
 import RarityBadge from './RarityBadge.jsx';
+import { DELTA_BADGE } from '../rarity.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
 
 function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
@@ -83,7 +84,7 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                     {/* Rarity badge (top-left) */}
                     {p.badge && (
                       <div className="gridBadgeCorner">
-                        <RarityBadge badge={p.badge} size={18} />
+                        <RarityBadge badge={(p.isDelta || p.buff?.kind === 'delta-typing') ? DELTA_BADGE : p.badge} size={18} />
                       </div>
                     )}
 
