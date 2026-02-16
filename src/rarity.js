@@ -32,11 +32,9 @@ export function makeBuff(rarityKey, pokemonData, rng = Math.random) {
   }
 
   if (rarityKey === 'rare') {
-    const options = ['stat+20', 'illegal-move'];
-    const pick = pickOne(options, rng);
-    if (pick === 'stat+20') return { kind: 'stat+20', stat: pickOne(STAT_KEYS, rng), amount: 20 };
-    return { kind: 'illegal-move', note: 'Illegal move' };
-  }
+  return { kind: 'stat+20', stat: pickOne(STAT_KEYS, rng), amount: 20 };
+}
+
 
   if (rarityKey === 'legendary') {
     const options = ['stat+30', 'stat+15x2', 'custom-move', 'chosen-ability'];

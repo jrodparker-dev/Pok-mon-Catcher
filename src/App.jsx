@@ -17,7 +17,6 @@ import PCBox from './components/PCBox.jsx';
 import { pickWeightedRarity, makeBuff, RARITIES } from './rarity.js';
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
-import { rollIllegalAttackingMove } from './movePool.js';
 import { pickUnique, uid } from './utils.js';
 
 function capName(name) {
@@ -487,16 +486,6 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
     } else {
       const all = await getAllAbilities();
       ability = rollAbility(all);
-    }
-
-    // Rare: illegal attacking move not in learnset
-    if (w.buff?.kind === 'illegal-move') {
-      const illegal = await rollIllegalAttackingMove(learnsetSet);
-      const others = pickUnique(learnset.filter(x => x !== illegal.name), 3).map(m => ({
-        kind: 'learnset',
-        name: m,
-      }));
-      moves = [{ kind: 'illegal', name: illegal.name, meta: illegal }, ...others];
     }
 
     // Legendary: custom move
