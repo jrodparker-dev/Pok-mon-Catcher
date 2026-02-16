@@ -41,13 +41,34 @@ function insertHyphenBeforeSuffix(id) {
   }
   return null;
 }
+function normalizeRawId(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+
+  // If something got URL-encoded (like %7C), decode it
+  try { s = decodeURIComponent(s); } catch {}
+
+  // If we ever store extra info like "kyuremwhite|Normal", keep only the id
+  s = s.split('|')[0].trim();
+
+  return s;
+}
+
 
 export function getSpriteKey(mon) {
   const raw = mon?.formId || mon?.speciesId || mon?.dexId || mon?.id || mon?.name;
-  const id = sanitizeId(raw);
-  // IMPORTANT: cache shiny and non-shiny separately
-  return `${id}|${mon?.shiny ? 'shiny' : 'normal'}`;
+
+  // Clean base id
+  const baseId = sanitizeId(
+    String(raw ?? '')
+      .trim()
+      .split('|')[0] // strip accidental "|normal" or "|shiny"
+  );
+
+  // Cache shiny + non-shiny separately WITHOUT corrupting sprite id
+  return mon?.shiny ? `${baseId}__shiny` : baseId;
 }
+
 
 
 export function getSpriteIdCandidates(mon) {
