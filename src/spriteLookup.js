@@ -44,8 +44,11 @@ function insertHyphenBeforeSuffix(id) {
 
 export function getSpriteKey(mon) {
   const raw = mon?.formId || mon?.speciesId || mon?.dexId || mon?.id || mon?.name;
-  return sanitizeId(raw);
+  const id = sanitizeId(raw);
+  // IMPORTANT: cache shiny and non-shiny separately
+  return `${id}|${mon?.shiny ? 'shiny' : 'normal'}`;
 }
+
 
 export function getSpriteIdCandidates(mon) {
   const id0 = getSpriteKey(mon);
@@ -70,11 +73,19 @@ export function getShowdownSpriteCandidates(mon) {
   const key = getSpriteKey(mon);
   const cached = key ? spriteCache.get(key) : null;
   const ids = getSpriteIdCandidates(mon);
+  const isShiny = !!mon?.shiny;
 
   const urls = [];
   if (cached) urls.push(cached);
 
   for (const id of ids) {
+    // Shiny first (only if shiny)
+    if (isShiny) {
+      urls.push(`${SHOWDOWN_BASE}/ani-shiny/${id}.gif`);
+      urls.push(`${SHOWDOWN_BASE}/gen5ani-shiny/${id}.gif`);
+    }
+
+    // Normal animated + PNG fallbacks
     urls.push(`${SHOWDOWN_BASE}/ani/${id}.gif`);
     urls.push(`${SHOWDOWN_BASE}/gen5ani/${id}.gif`);
     urls.push(`${SHOWDOWN_BASE}/dex/${id}.png`);
@@ -84,6 +95,7 @@ export function getShowdownSpriteCandidates(mon) {
   if (mon?.spriteUrl) urls.push(mon.spriteUrl);
   return [...new Set(urls.filter(Boolean))];
 }
+
 
 export function cacheSpriteSuccess(mon, src) {
   const key = getSpriteKey(mon);
