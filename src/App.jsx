@@ -376,7 +376,9 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
     setWild(null);
     setActiveBall(null);
     setPityFails(0);
-    setAttacksLeft(4);
+    // New encounter (including "Run & find another"): reset per-encounter assist state
+    // so you can attack again immediately.
+    resetEncounterAssist();
 
     try {
       // Pinkmon-style spawn: always pick a random PS dex id (forms spawn distinctly)
@@ -407,12 +409,10 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
       const spriteCandidates = [...psCandidates, finalFallback].filter(Boolean);
       const spriteUrlResolved = spriteCandidates[0] || "";
 
-      const badge = isDelta ? DELTA_BADGE : rarity.badge;
-
       setWild({
         ...bundle,
         rarity: rarity.key,
-        badge,
+        badge: rarity.badge,
         buff,
         shiny: isShiny,
         types: rolledTypesForWild,
@@ -697,6 +697,14 @@ function formatMonToShowdown(mon) {
   }
   lines.push(`Ability: ${abilLine}`);
 
+  // Previous abilities (for evolved Pokémon)
+  const prev = Array.isArray(mon?.prevAbilities) ? mon.prevAbilities.filter(Boolean) : [];
+  if (prev.length) {
+    // Kept as a comment-style line so it remains readable in exports
+    // (and may still import in Showdown depending on parser tolerance).
+    lines.push(`# Previous Abilities: ${prev.map(toShowdownName).join(' / ')}`);
+  }
+
   // "Tera Type" doesn't exist in this game yet; choose first type as a default placeholder
   const tera = Array.isArray(mon?.types) && mon.types.length ? toShowdownName(mon.types[0]) : 'Normal';
   lines.push(`Tera Type: ${tera}`);
@@ -885,6 +893,7 @@ async function copyPCToClipboard() {
         <div className="wildSpriteWrap">
           {/* rarity icon top-left */}
           <div className="rarityCorner">
+            {wild.isDelta ? <RarityBadge badge={DELTA_BADGE} size={22} /> : null}
             <RarityBadge badge={wild.badge} size={22} />
           </div>
 
@@ -993,6 +1002,29 @@ async function copyPCToClipboard() {
                 <span className="mobileActiveSub">
                   {monMovesUsedCount}/4 • Attacks {attacksLeft}/4 • KO {Math.round(nextKoChance * 100)}%
                 </span>
+                <div className="mobileBuffDesc">
+                  {(() => {
+                    const parts = [];
+                    if (wild?.isDelta) parts.push('Delta Typing');
+                    const b = wild?.buff;
+                    if (!b || b.kind === 'none') {
+                      parts.push('No buff');
+                    } else if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
+                      parts.push(`+${b.amount} ${String(b.stat || '').toUpperCase()}`);
+                    } else if (b.kind === 'stat+15x2') {
+                      const a = String(b.stats?.[0] || '').toUpperCase();
+                      const c = String(b.stats?.[1] || '').toUpperCase();
+                      parts.push(`+${b.amount} ${a} & +${b.amount} ${c}`);
+                    } else if (b.kind === 'custom-move') {
+                      parts.push('Custom Move');
+                    } else if (b.kind === 'chosen-ability') {
+                      parts.push('Chosen Ability');
+                    } else {
+                      parts.push(String(b.kind));
+                    }
+                    return `Buff: ${parts.join(' • ')}`;
+                  })()}
+                </div>
               </div>
 
               <div className="mobileMovesGrid">

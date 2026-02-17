@@ -84,7 +84,12 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                     {/* Rarity badge (top-left) */}
                     {p.badge && (
                       <div className="gridBadgeCorner">
-                        <RarityBadge badge={(p.isDelta || p.buff?.kind === 'delta-typing') ? DELTA_BADGE : p.badge} size={18} />
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {(p.isDelta || p.buff?.kind === 'delta-typing') ? (
+                            <RarityBadge badge={DELTA_BADGE} size={18} />
+                          ) : null}
+                          <RarityBadge badge={p.badge} size={18} />
+                        </div>
                       </div>
                     )}
 
