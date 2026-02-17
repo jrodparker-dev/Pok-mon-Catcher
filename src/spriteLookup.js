@@ -15,7 +15,8 @@ export const FORME_SUFFIXES = [
   'dusk','dawn','ice','shadow',
   'school','solo','busted',
   'white','black',
-  'gmax',
+  'gmax', 'sensu', 'pau', 'pompom', 'hearthflametera', 'cornerstonetera', 'wellspringtera',
+  'tealtera', 'wellspring', 'cornerstone', 'hearthflame', 'douse', 'shock', 'artisan', 'masterpiece', 
   'mega','megax','megay', 'eternamax',
   'roaming',
 ];
