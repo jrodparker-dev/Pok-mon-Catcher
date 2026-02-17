@@ -404,22 +404,25 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
       });
 
       // Resolve a working sprite URL using robust PS fallbacks (pinkmon logic) + official artwork fallback
-      const psCandidates = spriteFallbacksFromBundle(bundle, isShiny);
-      const finalFallback = isShiny ? (bundle.fallbackShinySprite || bundle.fallbackSprite) : bundle.fallbackSprite;
-      const spriteCandidates = [...psCandidates, finalFallback].filter(Boolean);
-      const spriteUrlResolved = spriteCandidates[0] || "";
+      const finalFallback = isShiny
+  ? (bundle.fallbackShinySprite || bundle.fallbackSprite)
+  : bundle.fallbackSprite;
 
-      setWild({
-        ...bundle,
-        rarity: rarity.key,
-        badge: rarity.badge,
-        buff,
-        shiny: isShiny,
-        types: rolledTypesForWild,
-        isDelta: isDelta,
-        spriteUrl: spriteUrlResolved,
-        fallbackSprite: finalFallback,
-      });
+setWild({
+  ...bundle,
+  rarity: rarity.key,
+  badge: rarity.badge,
+  buff,
+  shiny: isShiny,
+  types: rolledTypesForWild,
+  isDelta: isDelta,
+
+  // Keep these so spriteLookup.js can use them as last-resort URLs:
+  fallbackSprite: bundle.fallbackSprite,
+  fallbackShinySprite: bundle.fallbackShinySprite,
+  spriteUrl: finalFallback, // optional "last resort" convenience
+});
+
 
       setStage('ready');
     } catch (e) {
@@ -924,16 +927,13 @@ async function copyPCToClipboard() {
             </>
           ) : null}
 
-          <img
-            className={`wildSprite ${(stage === 'throwing' || stage === 'caught') ? 'fadeOut' : ''} ${(stage === 'broke') ? 'popIn' : ''}`}
-            src={wild.spriteUrl}
-            alt={wild.name}
-            onError={(e) => {
-              if (wild.fallbackSprite && e.currentTarget.src !== wild.fallbackSprite) {
-                e.currentTarget.src = wild.fallbackSprite;
-              }
-            }}
-          />
+          <SpriteWithFallback
+  mon={wild}
+  className={`wildSprite ${(stage === 'throwing' || stage === 'caught') ? 'fadeOut' : ''} ${(stage === 'broke') ? 'popIn' : ''}`}
+  alt={wild.name}
+  title={wild.name}
+/>
+
 
           {activeBall && (stage === 'throwing' || stage === 'caught' || stage === 'broke') && (
             <div className={`ballOverlay ${stage}`}>
