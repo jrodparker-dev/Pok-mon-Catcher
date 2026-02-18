@@ -1,3 +1,6 @@
+import { toID } from './pokeapi.js';
+
+
 // src/dexLocal.js
 
 import * as DexMod from './pokedex.ts';
@@ -9,11 +12,32 @@ const POKEDEX =
   DexMod.default ??
   DexMod;
 
-// Build an index by National Dex number
+// Build an index by National Dex number.
+// IMPORTANT: Prefer the *base species* entry for each num.
+// Your pokedex.ts includes many alternate forms that share the same num
+// (e.g. venusaurmega, butterfreegmax). If we let later entries overwrite
+// earlier ones, getDexEntryByNum(3) can become a form.
 const byNum = new Map();
+
+function isBaseSpeciesEntry(entry) {
+  // Base species entries do NOT have `forme` or `baseSpecies`.
+  return !!entry && !entry.forme && !entry.baseSpecies;
+}
+
 for (const [id, entry] of Object.entries(POKEDEX)) {
   if (!entry || typeof entry.num !== 'number') continue;
-  byNum.set(entry.num, { id, entry });
+
+  const cur = byNum.get(entry.num);
+  if (!cur) {
+    byNum.set(entry.num, { id, entry });
+    continue;
+  }
+
+  // If the current stored entry is a form and this one is base, replace it.
+  if (!isBaseSpeciesEntry(cur.entry) && isBaseSpeciesEntry(entry)) {
+    byNum.set(entry.num, { id, entry });
+  }
+  // Otherwise keep the existing mapping.
 }
 // Build a map by PS id (keys of pokedex.ts)
 const byId = new Map();
@@ -59,7 +83,8 @@ for (const [id, entry] of Object.entries(POKEDEX)) {
   byId.set(id, entry);
 }
 
-export function getDexById({ id, num }) {
+export function getDexById(arg) {
+  const { id, num } = (arg ?? {});
   if (id) {
     const entry = byId.get(id);
     if (!entry) return null;
@@ -72,6 +97,65 @@ export function getDexById({ id, num }) {
     return { id: hit.id, num, entry: hit.entry };
   }
   return null;
+}
+
+export const MAX_POKEDEX_NUM = 1025;
+
+// helper: base entry = no forme + no baseSpecies
+function isBaseDexEntry(e) {
+  return !!e && !e.forme && !e.baseSpecies;
+}
+
+// helper: given an entry, return the base species name (if it’s a form)
+function getBaseSpeciesName(e) {
+  if (!e) return null;
+  if (e.baseSpecies) return e.baseSpecies; // forms have baseSpecies: "Venusaur"
+  // sometimes base already
+  return e.name || null;
+}
+
+export function getAllBaseDexEntries() {
+  const out = [];
+  const usedNums = new Set();
+
+  for (let n = 1; n <= MAX_POKEDEX_NUM; n++) {
+    if (usedNums.has(n)) continue;
+
+    let e = getDexEntryByNum(n);
+    if (!e) continue;
+
+    // If dex # still points at a form, resolve to its base species entry.
+    if (!isBaseDexEntry(e)) {
+      const baseName = getBaseSpeciesName(e);
+      const baseId = baseName ? toID(baseName) : '';
+      const baseEntry = baseId ? byId.get(baseId) : null;
+      if (baseEntry && isBaseDexEntry(baseEntry) && baseEntry.num === n) {
+        e = baseEntry;
+      }
+    }
+
+    // Use the base species id.
+    const id = toID(e.name);
+    if (!id) continue;
+
+    usedNums.add(n);
+
+    out.push({
+      id,
+      name: e.name,
+      num: typeof e.num === 'number' ? e.num : n,
+    });
+  }
+
+  // Ensure sorted 1..1025
+  out.sort((a, b) => a.num - b.num);
+
+  // Guarantee exactly 1025 items (pad/trim if needed)
+  if (out.length !== MAX_POKEDEX_NUM) {
+    console.warn(`[dexLocal] Expected ${MAX_POKEDEX_NUM} entries, got ${out.length}.`);
+  }
+
+  return out.slice(0, MAX_POKEDEX_NUM);
 }
 
 

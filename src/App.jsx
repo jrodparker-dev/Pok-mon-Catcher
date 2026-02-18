@@ -1,15 +1,22 @@
+// App.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { getShowdownSpriteCandidates, cacheSpriteSuccess, SPRITE_CACHE_EVENT } from './spriteLookup.js';
 import RarityBadge from './components/RarityBadge.jsx';
+import GrassPatches from './components/GrassPatches.jsx';
+import Pokedex from './components/Pokedex.jsx';
 import { BALLS, calcCatchChance } from './balls.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
 import { defaultSave, loadSave, saveSave } from './storage.js';
 import { getEvolutionOptions } from './evolution.js';
-import { getRandomSpawnableDexId } from './dexLocal.js';
+import { getRandomSpawnableDexId, getDexEntryByNum } from './dexLocal.js';
 import { spriteFallbacksFromBundle } from './sprites.js';
+import { getAllBaseDexEntries } from './dexLocal.js';
+import { getDexById } from './dexLocal.js';
 
-const SHINY_CHANCE = 0.025; // 2.5%
 
+const BASE_SHINY_CHANCE = 0.025; // 2.5%
+const SHINY_STREAK_BONUS = 0.005; // +0.5% per consecutive catch
+const MAX_SHINY_CHANCE = 0.10; // safety cap (10%)
 
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
@@ -27,6 +34,21 @@ function capName(name) {
     .join(' ');
 }
 
+function useIsMobile(breakpointPx = 820) {
+  const [isMobile, setIsMobile] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(`(max-width: ${breakpointPx}px)`).matches;
+  });
+  React.useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpointPx}px)`);
+    const onChange = () => setIsMobile(mql.matches);
+    onChange();
+    mql.addEventListener?.('change', onChange);
+    return () => mql.removeEventListener?.('change', onChange);
+  }, [breakpointPx]);
+  return isMobile;
+}
+
 export default function App() {
   const [save, setSave] = useState(() => {
     const base = defaultSave();
@@ -37,10 +59,24 @@ export default function App() {
       ...loaded,
       balls: { ...base.balls, ...(loaded.balls ?? {}) },
       encounter: { ...base.encounter, ...(loaded.encounter ?? {}) },
+      // ensure pokedex bucket exists
+      pokedex: { ...(base.pokedex ?? {}), ...(loaded.pokedex ?? {}) },
       caught: (loaded.caught ?? base.caught ?? []).map((m) => {
         const dexNum = m.dexId ?? m.dexNum ?? m.num ?? (typeof m.id === 'number' ? m.id : undefined);
-        const formId = m.formId ?? m.speciesId ?? m.dexIdString ?? m.dexIdPS ?? (typeof m.dexId === 'string' ? m.dexId : null) ?? toID(m.name);
-        return { ...m, dexId: typeof dexNum === 'number' ? dexNum : m.dexId, formId: formId, speciesId: m.speciesId ?? formId, isDelta: !!(m.isDelta || m.delta || m.buff?.kind === 'delta-typing') };
+        const formId =
+          m.formId ??
+          m.speciesId ??
+          m.dexIdString ??
+          m.dexIdPS ??
+          (typeof m.dexId === 'string' ? m.dexId : null) ??
+          toID(m.name);
+        return {
+          ...m,
+          dexId: typeof dexNum === 'number' ? dexNum : m.dexId,
+          formId: formId,
+          speciesId: m.speciesId ?? formId,
+          isDelta: !!(m.isDelta || m.delta || m.buff?.kind === 'delta-typing'),
+        };
       }),
     };
   });
@@ -50,6 +86,7 @@ export default function App() {
 
   // idle|loading|ready|throwing|caught|broke
   const [stage, setStage] = useState('idle');
+  const [catchStreak, setCatchStreak] = useState(0);
 
   const [message, setMessage] = useState('');
   const [activeBall, setActiveBall] = useState(null);
@@ -58,242 +95,292 @@ export default function App() {
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
 
+  // ✅ NEW: Pokedex modal state
+  const [showDex, setShowDex] = useState(false);
+const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
+
+  // NEW: 3 hidden queued encounters behind grass
+  const [grassSlots, setGrassSlots] = useState([]); // array length 3
+
+  const isMobile = useIsMobile();
+
   // pity: 0..4 => multiplier 1..5
   const [pityFails, setPityFails] = useState(0);
   const pityMultiplier = Math.min(5, 1 + pityFails);
 
   const encounter = save.encounter ?? defaultSave().encounter;
 
+  // Team (up to 3) and battle-assist state (per encounter)
+  const teamUids = Array.isArray(save.teamUids) ? save.teamUids.slice(0, 3) : [];
+  const activeTeamUid = save.activeTeamUid ?? (teamUids[0] ?? null);
 
+  const teamMons = useMemo(() => {
+    const map = new Map((save.caught ?? []).map(m => [m.uid, m]));
+    return teamUids.map(u => map.get(u)).filter(Boolean).map(m => ({ ...m, name: capName(m.name) }));
+  }, [save.caught, save.teamUids]);
 
-// Team (up to 3) and battle-assist state (per encounter)
-const teamUids = Array.isArray(save.teamUids) ? save.teamUids.slice(0, 3) : [];
-const activeTeamUid = save.activeTeamUid ?? (teamUids[0] ?? null);
+  const activeMon = useMemo(
+    () => teamMons.find(m => m.uid === activeTeamUid) ?? teamMons[0] ?? null,
+    [teamMons, activeTeamUid]
+  );
 
-const teamMons = useMemo(() => {
-  const map = new Map((save.caught ?? []).map(m => [m.uid, m]));
-  return teamUids.map(u => map.get(u)).filter(Boolean).map(m => ({...m, name: capName(m.name)}));
-}, [save.caught, save.teamUids]);
+  // Per-encounter move usage + catch bonus from attacks
+  const [moveUsedByUid, setMoveUsedByUid] = useState(() => ({})); // { [uid]: boolean[4] }
+  const [attackBonus, setAttackBonus] = useState(0);
+  const [attackAnim, setAttackAnim] = useState(null); // {id, amount}
+  const [movesUsedSinceThrow, setMovesUsedSinceThrow] = useState(0);
+  // Total attacks allowed per encounter across the whole team
+  const [attacksLeft, setAttacksLeft] = useState(4);
 
-const activeMon = useMemo(() => teamMons.find(m => m.uid === activeTeamUid) ?? teamMons[0] ?? null, [teamMons, activeTeamUid]);
+  const usedMoves = activeMon ? (moveUsedByUid[activeMon.uid] ?? [false, false, false, false]) : [false, false, false, false];
+  const monMovesUsedCount = usedMoves.filter(Boolean).length;
+  const nextKoChance = [0.05, 0.15, 0.25, 0.45][Math.min(3, movesUsedSinceThrow)] ?? 0.45;
 
-// Per-encounter move usage + catch bonus from attacks
-const [moveUsedByUid, setMoveUsedByUid] = useState(() => ({})); // { [uid]: boolean[4] }
-const [attackBonus, setAttackBonus] = useState(0);
-const [attackAnim, setAttackAnim] = useState(null); // {id, amount}
-const [movesUsedSinceThrow, setMovesUsedSinceThrow] = useState(0);
-	// Total attacks allowed per encounter across the whole team
-	const [attacksLeft, setAttacksLeft] = useState(4);
-
-const usedMoves = activeMon ? (moveUsedByUid[activeMon.uid] ?? [false,false,false,false]) : [false,false,false,false];
-const monMovesUsedCount = usedMoves.filter(Boolean).length;
-const nextKoChance = [0.05, 0.15, 0.25, 0.45][Math.min(3, movesUsedSinceThrow)] ?? 0.45;
-
-function setTeamUids(nextUids) {
-  const uniq = Array.from(new Set(nextUids)).slice(0, 3);
-  setSave(prev => ({...prev, teamUids: uniq, activeTeamUid: prev.activeTeamUid && uniq.includes(prev.activeTeamUid) ? prev.activeTeamUid : (uniq[0] ?? null)}));
-}
-
-function toggleTeam(uidToToggle) {
-  const cur = Array.isArray(save.teamUids) ? save.teamUids : [];
-  if (cur.includes(uidToToggle)) {
-    setTeamUids(cur.filter(u => u !== uidToToggle));
-  } else {
-    if (cur.length >= 3) return;
-    setTeamUids([...cur, uidToToggle]);
+  function setTeamUids(nextUids) {
+    const uniq = Array.from(new Set(nextUids)).slice(0, 3);
+    setSave(prev => ({
+      ...prev,
+      teamUids: uniq,
+      activeTeamUid: prev.activeTeamUid && uniq.includes(prev.activeTeamUid) ? prev.activeTeamUid : (uniq[0] ?? null),
+    }));
   }
-}
 
-function setActiveTeam(uidToActivate) {
-  setSave(prev => ({...prev, activeTeamUid: uidToActivate}));
-}
-
-function resetEncounterAssist() {
-  setAttackBonus(0);
-  setMoveUsedByUid({});
-  setAttackAnim(null);
-  setMovesUsedSinceThrow(0);
-	  setAttacksLeft(4);
-}
-
-function pickRandomBallKey() {
-  const r = Math.random();
-  return r < 0.05 ? 'master' : r < 0.20 ? 'ultra' : r < 0.45 ? 'great' : 'poke';
-}
-
-function awardRandomBall() {
-  const key = pickRandomBallKey();
-  setSave(prev => ({
-    ...prev,
-    balls: { ...prev.balls, [key]: (prev.balls?.[key] ?? 0) + 1 },
-  }));
-  return key;
-}
-
-function replaceMoveWithToken(uid, slotIndex, moveDisplay) {
-  if (uid === null || uid === undefined) return;
-  setSave(prev => {
-    const tokens = prev.moveTokens ?? 0;
-    if (tokens <= 0) return prev;
-    const nextCaught = (prev.caught ?? []).map(m => {
-      if (m.uid !== uid) return m;
-      const moves = (m.moves ?? []).slice(0, 4);
-      const next = { kind: 'token', id: moveDisplay.id, name: moveDisplay.name, meta: moveDisplay.meta };
-      moves[slotIndex] = next;
-      return { ...m, moves };
-    });
-    return { ...prev, moveTokens: Math.max(0, tokens - 1), caught: nextCaught };
-  });
-}
-
-function releasePokemon(uid) {
-  setSave(prev => {
-    const caught = Array.isArray(prev.caught) ? prev.caught : [];
-    const idx = caught.findIndex(m => m.uid === uid);
-    if (idx < 0) return prev;
-
-    const ballKey = pickRandomBallKey();
-    const balls = { ...(prev.balls ?? {}) };
-    balls[ballKey] = (balls[ballKey] ?? 0) + 1;
-
-    const moveTokens = (prev.moveTokens ?? 0) + 1;
-
-    const nextCaught = caught.slice(0, idx).concat(caught.slice(idx + 1));
-    const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => x !== uid) : [];
-    const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
-
-    return { ...prev, balls, moveTokens, caught: nextCaught, teamUids, activeTeamUid };
-  });
-}
-
-
-
-function awardRandomBall() {
-  const r = Math.random();
-  const key = r < 0.05 ? 'master' : r < 0.20 ? 'ultra' : r < 0.45 ? 'great' : 'poke';
-  setSave(prev => ({
-    ...prev,
-    balls: { ...prev.balls, [key]: (prev.balls?.[key] ?? 0) + 1 },
-  }));
-  return key;
-}
-
-function advanceActiveTeam() {
-  if (!teamUids.length) return;
-  const idx = Math.max(0, teamUids.indexOf(activeTeamUid));
-  for (let step = 1; step <= teamUids.length; step++) {
-    const next = teamUids[(idx + step) % teamUids.length];
-    if (next) {
-      setActiveTeam(next);
-      return;
+  function toggleTeam(uidToToggle) {
+    const cur = Array.isArray(save.teamUids) ? save.teamUids : [];
+    if (cur.includes(uidToToggle)) {
+      setTeamUids(cur.filter(u => u !== uidToToggle));
+    } else {
+      if (cur.length >= 3) return;
+      setTeamUids([...cur, uidToToggle]);
     }
   }
+
+  function setActiveTeam(uidToActivate) {
+    setSave(prev => ({ ...prev, activeTeamUid: uidToActivate }));
+  }
+function todayKey() {
+  // local date, stable across refreshes (YYYY-MM-DD)
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+function markPokedexCaught(baseIdRaw, { shiny = false } = {}) {
+  const baseId = toID(baseIdRaw);
+  if (!baseId) return;
+
+  setSave(prev => {
+    const nextPokedex = { ...(prev.pokedex ?? {}) };
+    const cur = nextPokedex[baseId] ?? {};
+    const next = { ...cur };
+
+    next.seen = Math.max(next.seen ?? 0, 1);
+    next.caught = Math.max(next.caught ?? 0, 1);
+    if (shiny) next.shinyCaught = Math.max(next.shinyCaught ?? 0, 1);
+
+    nextPokedex[baseId] = next;
+    return { ...prev, pokedex: nextPokedex };
+  });
 }
 
-function pityAdjustedCaptureRate(base, fails) {
-  if (typeof base !== 'number') return base;
-  if (base > 100) return base;
-  const f = Math.max(0, Math.min(4, fails));
-  if (f === 0) return base;
-  if (base <= 10) {
-    return Math.min(100, Math.round(base * (2 ** f)));
+function grantDailyGiftIfAvailable() {
+  const key = todayKey();
+  let claimed = false;
+
+  setSave(prev => {
+    const last = prev.lastDailyGiftKey || null;
+    if (last === key) return prev;
+
+    claimed = true;
+
+    const balls = { ...(prev.balls ?? {}) };
+    balls.poke = (balls.poke ?? 0) + 10;
+    balls.great = (balls.great ?? 0) + 10;
+    balls.ultra = (balls.ultra ?? 0) + 10;
+    balls.master = (balls.master ?? 0) + 1;
+
+    return { ...prev, balls, lastDailyGiftKey: key };
+  });
+
+  // NOTE: claimed won't reliably reflect inside setSave due to async batching,
+  // so do it a cleaner way by reading current save:
+  const already = (save.lastDailyGiftKey || null) === key;
+  if (already) {
+    setMessage('Daily Gift already claimed today.');
+  } else {
+    setMessage('Daily Gift claimed: +10 Poké, +10 Great, +10 Ultra, +1 Master!');
   }
-  const frac = [0, 0.18, 0.55, 0.73, 1.0][f] ?? 1.0;
-  const out = Math.round(base + (100 - base) * frac);
-  return Math.max(base, Math.min(100, out));
 }
 
-function currentEffectiveCaptureRate() {
-  if (!wild) return 0;
-  const pityRate = pityAdjustedCaptureRate(wild.captureRate, pityFails);
-  const total = Math.min(255, Math.round(pityRate + attackBonus));
-  return {pityRate, total};
-}
 
-async function useAssistMove(moveIndex) {
-  if (!wild || stage !== 'ready') return;
-  if (!activeMon) {
-    setMessage('Add a Pokémon to your team in the PC to use moves.');
-    return;
-  }
-  if (attacksLeft <= 0) {
-    setMessage('No attacks left this encounter.');
-    return;
-  }
-  const used = (moveUsedByUid[activeMon.uid] ?? [false,false,false,false]).slice();
-  if (used[moveIndex]) return;
-
-  const amount = 1 + Math.floor(Math.random() * 30);
-  setAttackBonus(prev => prev + amount);
-  setAttackAnim({ id: uid(), amount });
-
-  // Mark move used
-  used[moveIndex] = true;
-  setMoveUsedByUid(prev => ({...prev, [activeMon.uid]: used}));
-
-  // Spend one of the 4 total attacks for this encounter
-  setAttacksLeft(prev => Math.max(0, prev - 1));
-
-  // KO roll based on which move number this is since the last ball throw (1..)
-  const idx = Math.min(3, movesUsedSinceThrow); // count BEFORE marking this one
-  const koChance = [0.05, 0.15, 0.25, 0.45][idx] ?? 0.45;
-  const ko = Math.random() < koChance;
-  setMovesUsedSinceThrow(prev => prev + 1);
-
-  if (ko) {
-    const ballKey = awardRandomBall();
-    setMessage(`Oh no! ${capName(wild.name)} was KO'd. You found a ${capName(ballKey)} ball!`);
-    // force switch to next team mon
-    advanceActiveTeam();
-    // reset pity and spawn a new wild after a short beat
-    setPityFails(0);
+  function resetEncounterAssist() {
+    setAttackBonus(0);
+    setMoveUsedByUid({});
+    setAttackAnim(null);
+    setMovesUsedSinceThrow(0);
     setAttacksLeft(4);
-    window.setTimeout(() => {
-      resetEncounterAssist();
-      spawn();
-    }, 900);
   }
-}
+
+  function pickRandomBallKey() {
+    const r = Math.random();
+    return r < 0.05 ? 'master' : r < 0.20 ? 'ultra' : r < 0.45 ? 'great' : 'poke';
+  }
+
+  function awardRandomBall() {
+    const key = pickRandomBallKey();
+    setSave(prev => ({
+      ...prev,
+      balls: { ...prev.balls, [key]: (prev.balls?.[key] ?? 0) + 1 },
+    }));
+    return key;
+  }
+
+  function replaceMoveWithToken(uid, slotIndex, moveDisplay) {
+    if (uid === null || uid === undefined) return;
+    setSave(prev => {
+      const tokens = prev.moveTokens ?? 0;
+      if (tokens <= 0) return prev;
+      const nextCaught = (prev.caught ?? []).map(m => {
+        if (m.uid !== uid) return m;
+        const moves = (m.moves ?? []).slice(0, 4);
+        const next = { kind: 'token', id: moveDisplay.id, name: moveDisplay.name, meta: moveDisplay.meta };
+        moves[slotIndex] = next;
+        return { ...m, moves };
+      });
+      return { ...prev, moveTokens: Math.max(0, tokens - 1), caught: nextCaught };
+    });
+  }
+
+  function releasePokemon(uid) {
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const idx = caught.findIndex(m => m.uid === uid);
+      if (idx < 0) return prev;
+
+      const ballKey = pickRandomBallKey();
+      const balls = { ...(prev.balls ?? {}) };
+      balls[ballKey] = (balls[ballKey] ?? 0) + 1;
+
+      const moveTokens = (prev.moveTokens ?? 0) + 1;
+
+      const nextCaught = caught.slice(0, idx).concat(caught.slice(idx + 1));
+      const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => x !== uid) : [];
+      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
+
+      return { ...prev, balls, moveTokens, caught: nextCaught, teamUids, activeTeamUid };
+    });
+  }
+
+  // (you still have a duplicate awardRandomBall below in your original file;
+  // leaving it untouched to avoid changing unrelated behavior)
+
+  function advanceActiveTeam() {
+    if (!teamUids.length) return;
+    const idx = Math.max(0, teamUids.indexOf(activeTeamUid));
+    for (let step = 1; step <= teamUids.length; step++) {
+      const next = teamUids[(idx + step) % teamUids.length];
+      if (next) {
+        setActiveTeam(next);
+        return;
+      }
+    }
+  }
+
+  function pityAdjustedCaptureRate(base, fails) {
+    if (typeof base !== 'number') return base;
+    if (base > 100) return base;
+    const f = Math.max(0, Math.min(4, fails));
+    if (f === 0) return base;
+    if (base <= 10) {
+      return Math.min(100, Math.round(base * (2 ** f)));
+    }
+    const frac = [0, 0.18, 0.55, 0.73, 1.0][f] ?? 1.0;
+    const out = Math.round(base + (100 - base) * frac);
+    return Math.max(base, Math.min(100, out));
+  }
+
+  function currentEffectiveCaptureRate() {
+    if (!wild) return 0;
+    const pityRate = pityAdjustedCaptureRate(wild.captureRate, pityFails);
+    const total = Math.min(255, Math.round(pityRate + attackBonus));
+    return { pityRate, total };
+  }
+
+  async function useAssistMove(moveIndex) {
+    if (!wild || stage !== 'ready') return;
+    if (!activeMon) {
+      setMessage('Add a Pokémon to your team in the PC to use moves.');
+      return;
+    }
+    if (attacksLeft <= 0) {
+      setMessage('No attacks left this encounter.');
+      return;
+    }
+    const used = (moveUsedByUid[activeMon.uid] ?? [false, false, false, false]).slice();
+    if (used[moveIndex]) return;
+
+    const amount = 1 + Math.floor(Math.random() * 30);
+    setAttackBonus(prev => prev + amount);
+    setAttackAnim({ id: uid(), amount });
+
+    // Mark move used
+    used[moveIndex] = true;
+    setMoveUsedByUid(prev => ({ ...prev, [activeMon.uid]: used }));
+
+    // Spend one of the 4 total attacks for this encounter
+    setAttacksLeft(prev => Math.max(0, prev - 1));
+
+    // KO roll
+    const idx = Math.min(3, movesUsedSinceThrow);
+    const koChance = [0.05, 0.15, 0.25, 0.45][idx] ?? 0.45;
+    const ko = Math.random() < koChance;
+    setMovesUsedSinceThrow(prev => prev + 1);
+
+    if (ko) {
+      const ballKey = awardRandomBall();
+      setMessage(`Oh no! ${capName(wild.name)} was KO'd. You found a ${capName(ballKey)} ball!`);
+      advanceActiveTeam();
+      setPityFails(0);
+      setCatchStreak(0);
+      setAttacksLeft(4);
+      window.setTimeout(() => {
+        resetEncounterAssist();
+        spawn();
+      }, 900);
+    }
+  }
 
   // Build list for PC
-const caughtList = useMemo(() => {
-  const arr = Array.isArray(save.caught) ? save.caught : [];
-  return arr.map(m => {
-    const dex = m.dexId ?? m.id ?? '';
-    let dexNum = m.dexNum ?? (typeof m.dexId === 'number' ? m.dexId : undefined);
+  const caughtList = useMemo(() => {
+    const arr = Array.isArray(save.caught) ? save.caught : [];
+    return arr.map(m => {
+      const dex = m.dexId ?? m.id ?? '';
+      let dexNum = m.dexNum ?? (typeof m.dexId === 'number' ? m.dexId : undefined);
 
-// If dexId is a string like "charizard", treat it as speciesId, not a number
-const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefined);
+      const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefined);
 
-// If you have a lookup available in your project, resolve dexNum from speciesId here
-// dexNum = dexNum ?? lookupDexNum(speciesId);
+      const rawName = String(m.name ?? '').trim();
+      const noDexPrefix = rawName.replace(/^\s*#?\d+\s+/i, '').trim();
 
-    // If any path ever stuffed the name into "Pikachu Pikachu" or "#25 Pikachu", normalize it here.
-    const rawName = String(m.name ?? '').trim();
+      const parts = noDexPrefix.split(/\s+/).filter(Boolean);
+      const half = Math.floor(parts.length / 2);
+      const deduped =
+        parts.length >= 2 &&
+          parts.length % 2 === 0 &&
+          parts.slice(0, half).join(' ').toLowerCase() === parts.slice(half).join(' ').toLowerCase()
+          ? parts.slice(0, half).join(' ')
+          : noDexPrefix;
 
-    // Strip a leading dex prefix if it exists (e.g. "#25 Pikachu" or "25 Pikachu")
-    const noDexPrefix = rawName.replace(/^\s*#?\d+\s+/i, '').trim();
+      const cleanName = capName(deduped);
 
-    // If the name accidentally got duplicated (e.g. "Pikachu Pikachu"), collapse it
-    const parts = noDexPrefix.split(/\s+/).filter(Boolean);
-    const half = Math.floor(parts.length / 2);
-    const deduped =
-      parts.length >= 2 &&
-      parts.length % 2 === 0 &&
-      parts.slice(0, half).join(' ').toLowerCase() === parts.slice(half).join(' ').toLowerCase()
-        ? parts.slice(0, half).join(' ')
-        : noDexPrefix;
-
-    const cleanName = capName(deduped);
-
-    return {
-      ...m,
-      name: cleanName,                 // ALWAYS just the name
-      pcLabel: dex ? `#${dex} ${cleanName}` : cleanName,  // UI label for PC rows
-    };
-  });
-}, [save.caught]);
-
+      return {
+        ...m,
+        name: cleanName,
+        pcLabel: dex ? `#${dex} ${cleanName}` : cleanName,
+      };
+    });
+  }, [save.caught]);
 
   useEffect(() => {
     saveSave(save);
@@ -304,69 +391,260 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
     const t = window.setTimeout(() => setAttackAnim(null), 650);
     return () => window.clearTimeout(t);
   }, [attackAnim]);
+
   async function evolveCaught(uidToEvolve, targetDexId) {
-  // Find the mon
-  const idx = (save.caught ?? []).findIndex(m => m.uid === uidToEvolve);
-  if (idx < 0) return;
+    const idx = (save.caught ?? []).findIndex(m => m.uid === uidToEvolve);
+    if (idx < 0) return;
 
-  const mon = save.caught[idx];
+    const mon = save.caught[idx];
+    const fromBaseId = toID(mon.formId ?? mon.speciesId ?? mon.name);
 
-  // Determine evolution target using local PS dex data.
-  // - If targetDexId is provided (split evo picker), use it.
-  // - Otherwise, pick randomly among all immediate evolutions.
-  const options = targetDexId ? [targetDexId] : getEvolutionOptions(mon.formId ?? mon.speciesId ?? mon.name);
-  if (!options || options.length === 0) {
-    alert('This Pokémon cannot evolve.');
-    return;
+
+    const options = targetDexId ? [targetDexId] : getEvolutionOptions(mon.formId ?? mon.speciesId ?? mon.name);
+    if (!options || options.length === 0) {
+      alert('This Pokémon cannot evolve.');
+      return;
+    }
+
+    const chosenDexId = targetDexId || options[Math.floor(Math.random() * options.length)];
+    const evolvedBundle = await fetchPokemonBundleByDexId(chosenDexId);
+
+    const evoCandidates = spriteFallbacksFromBundle(evolvedBundle, !!mon.shiny);
+    const evoFinalFallback = mon.shiny ? (evolvedBundle.fallbackShinySprite || evolvedBundle.fallbackSprite) : evolvedBundle.fallbackSprite;
+    const spriteCandidates = [...evoCandidates, evoFinalFallback].filter(Boolean);
+    const spriteUrlResolved = spriteCandidates[0] || "";
+
+    const evolvedWild = {
+      ...evolvedBundle,
+      rarity: mon.rarity,
+      badge: mon.badge,
+      buff: mon.buff,
+      isDelta: !!(mon.isDelta || mon.buff?.kind === 'delta-typing'),
+      types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
+    };
+
+    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny);
+
+    evolvedRecord.uid = mon.uid;
+    evolvedRecord.caughtAt = mon.caughtAt;
+
+    evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
+    evolvedRecord.isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
+
+    if (mon.isDelta || mon.buff?.kind === 'delta-typing') {
+      evolvedRecord.types = mon.types;
+    }
+    const toBaseId = toID(evolvedRecord.formId ?? evolvedRecord.speciesId ?? evolvedRecord.name);
+
+// ✅ Keep the old one forever + add the new one forever
+markPokedexCaught(fromBaseId, { shiny: !!mon.shiny });
+markPokedexCaught(toBaseId, { shiny: !!mon.shiny });
+
+
+    setSave(prev => {
+      const next = [...(prev.caught ?? [])];
+      next[idx] = evolvedRecord;
+      return { ...prev, caught: next };
+    });
+  }
+function getBaseDexNumFromAnyId(anyIdOrNum) {
+  // If it's already a number, assume it's a National Dex num.
+  if (typeof anyIdOrNum === 'number') return anyIdOrNum;
+
+  const id = toID(anyIdOrNum);
+  if (!id) return undefined;
+
+  // Look up the entry for this id in dexLocal
+  let entry = null;
+  try {
+    entry = getDexById(id); // should return {id, num, name, baseSpecies?, forme?, ...}
+  } catch {
+    entry = null;
+  }
+  if (!entry) return undefined;
+
+  // If this is a form, prefer baseSpecies
+  const baseId = toID(entry.baseSpecies || entry.name || entry.id || id);
+
+  // Look up the base entry to get its num
+  let baseEntry = null;
+  try {
+    baseEntry = getDexById(baseId);
+  } catch {
+    baseEntry = null;
   }
 
-  const chosenDexId = targetDexId || options[Math.floor(Math.random() * options.length)];
+  return baseEntry?.num ?? entry?.num ?? undefined;
+}
 
-  // Fetch evolved bundle (stats/types/abilities from local pokedex.ts, learnset from PokéAPI)
-  const evolvedBundle = await fetchPokemonBundleByDexId(chosenDexId);
+  // ======== POKEDEX (base forms only) ========
+  // We key Dex by numeric National Dex number (base forms only).
+  function bumpDexSeenByNum(dexNum, isShiny, isDelta) {
+  if (typeof dexNum !== 'number') return;
 
-  // Sprite resolution (pinkmon-style fallbacks) - preserve shiny through evolution
-  const evoCandidates = spriteFallbacksFromBundle(evolvedBundle, !!mon.shiny);
-  const evoFinalFallback = mon.shiny ? (evolvedBundle.fallbackShinySprite || evolvedBundle.fallbackSprite) : evolvedBundle.fallbackSprite;
-  const spriteCandidates = [...evoCandidates, evoFinalFallback].filter(Boolean);
-      const spriteUrlResolved = spriteCandidates[0] || "";
-
-// Build evolved record while keeping buff/rarity
-  const evolvedWild = {
-    ...evolvedBundle,
-    rarity: mon.rarity,
-    badge: mon.badge,
-    buff: mon.buff,
-    isDelta: !!(mon.isDelta || mon.buff?.kind === 'delta-typing'),
-    types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
-  };
-
-  // Rebuild like catching, but preserve uid + caughtAt + prevAbilities
-  const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny);
-
-  evolvedRecord.uid = mon.uid;               // replace in-place
-  evolvedRecord.caughtAt = mon.caughtAt;     // keep original catch timestamp
-
-  // Ability history
-  evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
-  evolvedRecord.isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
-
-  // If Delta typing, KEEP existing delta typing (the “buff”)
-  if (mon.isDelta || mon.buff?.kind === 'delta-typing') {
-    evolvedRecord.types = mon.types;
-  }
-
-  // If illegal-move buff, keep the *buff type* but re-roll illegal move against evolved learnset
-  // (buildCaughtRecord already does this as long as buff.kind === 'illegal-move')
-
-  // Replace in save
   setSave(prev => {
-    const next = [...(prev.caught ?? [])];
-    next[idx] = evolvedRecord;
-    return { ...prev, caught: next };
+    const base = defaultSave();
+    const cur = { ...base, ...prev };
+    const dex = { ...(cur.pokedex ?? {}) };
+
+    const k = String(dexNum);
+    const old = dex[k] ?? {};
+
+    dex[k] = {
+      dexNum,
+
+      // ✅ Permanent seen flag
+      seen: Math.max(old.seen ?? 0, 1),
+
+      // Preserve caught state if it exists
+      caught: old.caught ?? 0,
+
+      // Permanent shiny/delta seen flags
+      shinySeen: isShiny ? Math.max(old.shinySeen ?? 0, 1) : (old.shinySeen ?? 0),
+      deltaSeen: isDelta ? Math.max(old.deltaSeen ?? 0, 1) : (old.deltaSeen ?? 0),
+
+      // Preserve caught versions
+      shinyCaught: old.shinyCaught ?? 0,
+      deltaCaught: old.deltaCaught ?? 0,
+    };
+
+    return { ...cur, pokedex: dex };
   });
 }
 
+
+  function bumpDexCaughtByNum(dexNum, isShiny, isDelta) {
+  if (typeof dexNum !== 'number') return;
+
+  setSave(prev => {
+    const base = defaultSave();
+    const cur = { ...base, ...prev };
+    const dex = { ...(cur.pokedex ?? {}) };
+
+    const k = String(dexNum);
+    const old = dex[k] ?? {};
+
+    dex[k] = {
+      dexNum,
+      // ✅ Always at least 1 once we’ve ever encountered/caught it
+      seen: Math.max(old.seen ?? 0, 1),
+      // ✅ Permanent "caught" flag
+      caught: Math.max(old.caught ?? 0, 1),
+
+      // ✅ Also permanent flags (keep counts if you want, but never drop below 1 once achieved)
+      shinyCaught: isShiny ? Math.max(old.shinyCaught ?? 0, 1) : (old.shinyCaught ?? 0),
+      deltaCaught: isDelta ? Math.max(old.deltaCaught ?? 0, 1) : (old.deltaCaught ?? 0),
+
+      // keep these as-is (or you can also Math.max to 1 when relevant)
+      shinySeen: old.shinySeen ?? 0,
+      deltaSeen: old.deltaSeen ?? 0,
+    };
+
+    return { ...cur, pokedex: dex };
+  });
+}
+
+
+  // Build Dex list once (1..1025) from your local dex.
+  // If your local dex is shorter, entries will just be missing/skipped.
+  const dexEntries = useMemo(() => {
+    const out = [];
+    const MAX = 1025;
+    for (let n = 1; n <= MAX; n++) {
+      const e = getDexEntryByNum?.(n);
+      if (!e) continue;
+      // Expect { num, id, name } at minimum
+      out.push({
+        dexNum: e.num ?? n,
+        dexId: e.id ?? toID(e.name ?? String(n)),
+        name: e.name ?? `#${n}`,
+      });
+    }
+    return out;
+  }, []);
+  // ==========================================
+
+  // --- encounter tracker helper (reused for grass-slot rolls too)
+  function bumpSeen(rarityKey, isShiny, isDelta) {
+    setSave(prev => {
+      const base = defaultSave();
+      const cur = { ...base, ...prev, encounter: { ...base.encounter, ...(prev.encounter ?? {}) } };
+      const e = { ...cur.encounter };
+      const rk = rarityKey;
+      if (e[rk]) e[rk] = { ...e[rk], seen: (e[rk].seen ?? 0) + 1 };
+      if (isShiny) e.shiny = { ...e.shiny, seen: (e.shiny.seen ?? 0) + 1 };
+      if (isDelta) e.delta = { ...e.delta, seen: (e.delta?.seen ?? 0) + 1 };
+      return { ...cur, encounter: e };
+    });
+  }
+
+  // Roll ONE wild (used for main spawn + grass slots)
+  async function rollOneEncounter() {
+    const dexId = getRandomSpawnableDexId();
+    const bundle = await fetchPokemonBundleByDexId(dexId);
+
+    const rarity = pickWeightedRarity();
+    const buff = makeBuff(rarity.key, bundle);
+    const shinyChance = Math.min(MAX_SHINY_CHANCE, BASE_SHINY_CHANCE + SHINY_STREAK_BONUS * catchStreak);
+    const isShiny = Math.random() < shinyChance;
+
+    const isDelta = rollDelta(rarity.key);
+    const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
+
+    bumpSeen(rarity.key, isShiny, isDelta);
+
+    // ✅ Dex seen (base forms only)
+    const dexNum = bundle.dexNum ?? bundle.num ?? (typeof bundle.id === 'number' ? bundle.id : undefined);
+    bumpDexSeenByNum(dexNum, isShiny, isDelta);
+
+    const finalFallback = isShiny
+      ? (bundle.fallbackShinySprite || bundle.fallbackSprite)
+      : bundle.fallbackSprite;
+
+    // NOTE: SpriteWithFallback will do the real lookup + caching.
+    return {
+      ...bundle,
+      rarity: rarity.key,
+      badge: rarity.badge,
+      buff,
+      shiny: isShiny,
+      types: rolledTypesForWild,
+      isDelta,
+
+      fallbackSprite: bundle.fallbackSprite,
+      fallbackShinySprite: bundle.fallbackShinySprite,
+      spriteUrl: finalFallback, // last-resort
+    };
+  }
+
+  async function rollGrassSlots() {
+    try {
+      const mons = await Promise.all([rollOneEncounter(), rollOneEncounter(), rollOneEncounter()]);
+      setGrassSlots(mons);
+    } catch (e) {
+      console.error('Failed to roll grass slots', e);
+      setGrassSlots([]);
+    }
+  }
+
+  async function chooseGrassSlot(index) {
+    const picked = grassSlots[index];
+    if (!picked) return;
+
+    // Hide the other two immediately
+    setGrassSlots([]);
+
+    // Start the picked encounter
+    setMessage('');
+    setStage('ready');
+    setWild(picked);
+    setActiveBall(null);
+    setPityFails(0);
+    resetEncounterAssist();
+
+    // IMPORTANT: Do NOT roll new grass here.
+    // Grass only appears after you catch a Pokémon.
+  }
 
   async function spawn() {
     if (stage === 'loading' || stage === 'throwing') return;
@@ -376,54 +654,13 @@ const speciesId = typeof m.dexId === 'string' ? m.dexId : (m.speciesId ?? undefi
     setWild(null);
     setActiveBall(null);
     setPityFails(0);
-    // New encounter (including "Run & find another"): reset per-encounter assist state
-    // so you can attack again immediately.
+
+    // New encounter: reset per-encounter assist state
     resetEncounterAssist();
 
     try {
-      // Pinkmon-style spawn: always pick a random PS dex id (forms spawn distinctly)
-      const dexId = getRandomSpawnableDexId();
-      const bundle = await fetchPokemonBundleByDexId(dexId);
-
-      const rarity = pickWeightedRarity();
-      const buff = makeBuff(rarity.key, bundle);
-      const isShiny = Math.random() < SHINY_CHANCE;
-      const isDelta = rollDelta(rarity.key);
-      const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
-
-      // Update encounter tracker (seen)
-      setSave(prev => {
-        const base = defaultSave();
-        const cur = { ...base, ...prev, encounter: { ...base.encounter, ...(prev.encounter ?? {}) } };
-        const e = { ...cur.encounter };
-        const rk = rarity.key;
-        if (e[rk]) e[rk] = { ...e[rk], seen: (e[rk].seen ?? 0) + 1 };
-        if (isShiny) e.shiny = { ...e.shiny, seen: (e.shiny.seen ?? 0) + 1 };
-        if (isDelta) e.delta = { ...e.delta, seen: (e.delta?.seen ?? 0) + 1 };
-        return { ...cur, encounter: e };
-      });
-
-      // Resolve a working sprite URL using robust PS fallbacks (pinkmon logic) + official artwork fallback
-      const finalFallback = isShiny
-  ? (bundle.fallbackShinySprite || bundle.fallbackSprite)
-  : bundle.fallbackSprite;
-
-setWild({
-  ...bundle,
-  rarity: rarity.key,
-  badge: rarity.badge,
-  buff,
-  shiny: isShiny,
-  types: rolledTypesForWild,
-  isDelta: isDelta,
-
-  // Keep these so spriteLookup.js can use them as last-resort URLs:
-  fallbackSprite: bundle.fallbackSprite,
-  fallbackShinySprite: bundle.fallbackShinySprite,
-  spriteUrl: finalFallback, // optional "last resort" convenience
-});
-
-
+      const w = await rollOneEncounter();
+      setWild(w);
       setStage('ready');
     } catch (e) {
       console.error(e);
@@ -451,9 +688,7 @@ setWild({
     setStage('ready');
     setActiveBall(null);
     setMessage('');
-    // Keep attack bonus and used moves across "Try again" (same encounter)
     setAttackAnim(null);
-    // IMPORTANT: do NOT reset pity here, so it stacks across retries
   }
 
   function resetToIdle() {
@@ -464,10 +699,12 @@ setWild({
     setPityFails(0);
     setAttacksLeft(4);
     resetEncounterAssist();
+    setCatchStreak(0);
+    setGrassSlots([]);
   }
 
   function applyStatBuff(baseStats, buff) {
-    const s = { ...baseStats }; // hp/atk/def/spa/spd/spe
+    const s = { ...baseStats };
     if (!buff || buff.kind === 'none') return s;
 
     if (buff.kind === 'stat+10' || buff.kind === 'stat+20' || buff.kind === 'stat+30') {
@@ -483,12 +720,8 @@ setWild({
 
   async function buildCaughtRecord(w, spriteUrlResolved, isShiny = false) {
     const learnset = w.learnsetMoves ?? [];
-    const learnsetSet = new Set(learnset);
-
-    // Default 4 learnset moves
     let moves = pickUnique(learnset, 4).map(m => ({ kind: 'learnset', name: m }));
 
-    // Ability
     let ability;
     if (w.buff?.kind === 'chosen-ability') {
       const native = w.nativeAbilities ?? [];
@@ -501,42 +734,38 @@ setWild({
       ability = rollAbility(all);
     }
 
-    // Legendary: custom move
     if (w.buff?.kind === 'custom-move') {
       const others = pickUnique(learnset, 3).map(m => ({ kind: 'learnset', name: m }));
       moves = [{ kind: 'custom', name: 'Custom Move' }, ...others];
     }
 
-    // Delta typing override
     const baseTypes = w.types ?? [];
-const types = w?.isDelta ? rollDeltaTypes(baseTypes) : baseTypes;
-
+    const types = w?.isDelta ? rollDeltaTypes(baseTypes) : baseTypes;
 
     const baseStats = w.baseStats ?? {};
     const finalStats = applyStatBuff(baseStats, w.buff);
-// Shiny: 1% chance, uses shiny sprite and +50 to lowest final stat
-let shinyBoostStat = null;
-if (isShiny) {
-  const keys = ['hp','atk','def','spa','spd','spe'];
-  let minVal = Infinity;
-  for (const k of keys) {
-    const v = finalStats?.[k];
-    if (typeof v === 'number') minVal = Math.min(minVal, v);
-  }
-  const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
-  const pick = mins.length ? mins[Math.floor(Math.random() * mins.length)] : 'hp';
-  shinyBoostStat = pick;
-  finalStats[pick] = (finalStats[pick] ?? 0) + 50;
-}
 
+    let shinyBoostStat = null;
+    if (isShiny) {
+      const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+      let minVal = Infinity;
+      for (const k of keys) {
+        const v = finalStats?.[k];
+        if (typeof v === 'number') minVal = Math.min(minVal, v);
+      }
+      const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
+      const pick = mins.length ? mins[Math.floor(Math.random() * mins.length)] : 'hp';
+      shinyBoostStat = pick;
+      finalStats[pick] = (finalStats[pick] ?? 0) + 50;
+    }
 
     const dexNum = w.dexNum ?? w.num ?? (typeof w.id === 'number' ? w.id : undefined);
     const formId = w.dexId ?? w.speciesId ?? toID(w.name);
 
     return {
       uid: uid('c'),
-      dexId: dexNum,        // numeric NatDex for display/sorting
-      formId: formId,       // string PS id for sprites/forms/evolution
+      dexId: dexNum,
+      formId: formId,
       speciesId: w.dexId ?? w.speciesId ?? formId,
       name: w.name,
 
@@ -574,36 +803,35 @@ if (isShiny) {
 
     decrementBall(ballKey);
 
-    // New ball throw starts a new KO-risk sequence
     setMovesUsedSinceThrow(0);
 
     setActiveBall(ballKey);
     setStage('throwing');
     setMessage('');
 
-    // Sprite was already resolved during spawn(); keep it for caught record
     const spriteUrlResolved = wild.spriteUrl;
+    const isShiny = !!wild.shiny;
 
-	    // Shiny flag for caught record + encounter counters
-	    const isShiny = !!wild.shiny;
+    const { pityRate, total: effectiveRate } = currentEffectiveCaptureRate();
+    let chance = calcCatchChance(effectiveRate, ball);
+    const caught = Math.random() < chance;
 
-    // Calculate chance (pity affects capture rate up to 100/255, only if base <= 100)
-const {pityRate, total: effectiveRate} = currentEffectiveCaptureRate();
-let chance = calcCatchChance(effectiveRate, ball);
-const caught = Math.random() < chance;
-
-
-    // Keep UI timing consistent with shake animation
     window.setTimeout(() => {
       (async () => {
         if (caught) {
           setStage('caught');
           setMessage(`Gotcha! ${capName(wild.name)} was caught!`);
           setPityFails(0);
-    setAttacksLeft(4);
+          setAttacksLeft(4);
+          setCatchStreak((s) => s + 1);
           resetEncounterAssist();
+          rollGrassSlots();
 
           const record = await buildCaughtRecord(wild, spriteUrlResolved, isShiny);
+
+          // ✅ Dex caught (base forms only)
+          const dexNum = wild.dexNum ?? wild.num ?? (typeof wild.id === 'number' ? wild.id : undefined);
+          bumpDexCaughtByNum(dexNum, isShiny, !!record?.isDelta);
 
           setSave(prev => {
             const base = defaultSave();
@@ -625,226 +853,232 @@ const caught = Math.random() < chance;
             setPityFails(prev => Math.min(4, prev + 1));
           } else {
             setPityFails(0);
-    setAttacksLeft(4);
+            setCatchStreak(0);
+            setAttacksLeft(4);
           }
-          // Do NOT reset used moves or attack bonus on break-free; those persist for this encounter
           setAttackAnim(null);
         }
       })();
     }, 900);
   }
 
-// ===== PC Export =====
-function toShowdownName(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  return s
-    .split(/[-_\s]+/g)
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
-
-function formatBuffLine(mon) {
-  const parts = [];
-  if (mon?.rarity) {
-    const r = String(mon.rarity);
-    if (r && r !== 'common') parts.push(r.charAt(0).toUpperCase() + r.slice(1));
+  // ===== PC Export =====
+  function toShowdownName(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    return s
+      .split(/[-_\s]+/g)
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
   }
-  if (mon?.buff && mon.buff.kind && mon.buff.kind !== 'none') {
-    // Make buff readable (stat boosts, illegal move, delta typing, etc.)
-    const b = mon.buff;
-    if (b.kind?.startsWith('stat+')) {
-      if (b.stat && b.amount) parts.push(`+${b.amount} ${String(b.stat).toUpperCase()}`);
-      else parts.push(b.kind);
-    } else if (b.kind === 'stat+15x2') {
-      parts.push(`+${b.amount} ${String(b.stats?.[0] || '').toUpperCase()} & +${b.amount} ${String(b.stats?.[1] || '').toUpperCase()}`);
-    } else if (b.kind === 'illegal-move') {
-      parts.push('Illegal Move');
-    } else if (b.kind === 'custom-move') {
-      parts.push('Custom Move');
-    } else if (b.kind === 'delta-typing') {
-      parts.push('Delta Typing');
-    } else if (b.kind === 'chosen-ability') {
-      parts.push('Pick Ability');
-    } else {
-      parts.push(b.kind);
+
+  function formatBuffLine(mon) {
+    const parts = [];
+    if (mon?.rarity) {
+      const r = String(mon.rarity);
+      if (r && r !== 'common') parts.push(r.charAt(0).toUpperCase() + r.slice(1));
+    }
+    if (mon?.buff && mon.buff.kind && mon.buff.kind !== 'none') {
+      const b = mon.buff;
+      if (b.kind?.startsWith('stat+')) {
+        if (b.stat && b.amount) parts.push(`+${b.amount} ${String(b.stat).toUpperCase()}`);
+        else parts.push(b.kind);
+      } else if (b.kind === 'stat+15x2') {
+        parts.push(`+${b.amount} ${String(b.stats?.[0] || '').toUpperCase()} & +${b.amount} ${String(b.stats?.[1] || '').toUpperCase()}`);
+      } else if (b.kind === 'illegal-move') {
+        parts.push('Illegal Move');
+      } else if (b.kind === 'custom-move') {
+        parts.push('Custom Move');
+      } else if (b.kind === 'delta-typing') {
+        parts.push('Delta Typing');
+      } else if (b.kind === 'chosen-ability') {
+        parts.push('Pick Ability');
+      } else {
+        parts.push(b.kind);
+      }
+    }
+    if (mon?.shiny) parts.push('Shiny');
+    if (mon?.isDelta) parts.push('Delta Typing');
+    if (mon?.types && Array.isArray(mon.types) && mon.isDelta) {
+      parts.push(`Typing: ${mon.types.map(t => toShowdownName(t)).join(' / ')}`);
+    }
+    if (!parts.length) return '';
+    return `(${parts.join(' • ')})`;
+  }
+
+  function formatMonToShowdown(mon) {
+    const header = formatBuffLine(mon);
+    const name = toShowdownName(mon?.name || mon?.dexId || 'Pokemon');
+    const lines = [];
+    if (header) lines.push(header);
+
+    lines.push(`${name}`);
+
+    const abil = mon?.ability;
+    let abilLine = 'Custom';
+    if (abil && typeof abil === 'object') {
+      if (abil.kind === 'custom') abilLine = 'Custom';
+      else if (abil.name) abilLine = toShowdownName(abil.name);
+    } else if (typeof abil === 'string') {
+      abilLine = toShowdownName(abil);
+    }
+    lines.push(`Ability: ${abilLine}`);
+
+    const prev = Array.isArray(mon?.prevAbilities) ? mon.prevAbilities.filter(Boolean) : [];
+    if (prev.length) {
+      lines.push(`# Previous Abilities: ${prev.map(toShowdownName).join(' / ')}`);
+    }
+
+    const tera = Array.isArray(mon?.types) && mon.types.length ? toShowdownName(mon.types[0]) : 'Normal';
+    lines.push(`Tera Type: ${tera}`);
+
+    lines.push(`EVs: 252 HP / 4 Def / 252 SpD`);
+    lines.push(`Calm Nature`);
+
+    const moves = Array.isArray(mon?.moves) ? mon.moves : [];
+    for (let i = 0; i < 4; i++) {
+      const mv = moves[i];
+      let mvName = '';
+      if (!mv) {
+        mvName = 'Tackle';
+      } else if (typeof mv === 'string') {
+        mvName = toShowdownName(mv);
+      } else {
+        if (mv.kind === 'illegal' || mv.kind === 'custom') mvName = 'Custom';
+        else mvName = toShowdownName(mv.name || mv.id || '');
+      }
+      if (!mvName) mvName = 'Tackle';
+      lines.push(`- ${mvName}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  function buildPCExportText() {
+    const mons = save?.caught || [];
+    if (!mons.length) return '';
+    return mons.map(formatMonToShowdown).join('\n\n');
+  }
+
+  function downloadTextFile(filename, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportPCToFile() {
+    const text = buildPCExportText();
+    if (!text) {
+      setMessage('PC is empty.');
+      return;
+    }
+    downloadTextFile('pc-box.txt', text + '\n');
+    setMessage('Exported PC to pc-box.txt');
+  }
+
+  async function copyPCToClipboard() {
+    const text = buildPCExportText();
+    if (!text) {
+      setMessage('PC is empty.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text + '\n');
+      setMessage('Copied PC export to clipboard.');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text + '\n';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      setMessage('Copied PC export to clipboard.');
     }
   }
-  if (mon?.shiny) parts.push('Shiny');
-  if (mon?.isDelta) parts.push('Delta Typing');
-  if (mon?.types && Array.isArray(mon.types) && mon.isDelta) {
-    parts.push(`Typing: ${mon.types.map(t => toShowdownName(t)).join(' / ')}`);
-  }
-  if (!parts.length) return '';
-  return `(${parts.join(' • ')})`;
-}
-
-function formatMonToShowdown(mon) {
-  const header = formatBuffLine(mon);
-  const name = toShowdownName(mon?.name || mon?.dexId || 'Pokemon');
-  const lines = [];
-  if (header) lines.push(header);
-
-  // Item isn't part of your current data model; omit if unknown
-  lines.push(`${name}`);
-
-  // Ability: if ability is custom/unknown, print Custom
-  const abil = mon?.ability;
-  let abilLine = 'Custom';
-  if (abil && typeof abil === 'object') {
-    if (abil.kind === 'custom') abilLine = 'Custom';
-    else if (abil.name) abilLine = toShowdownName(abil.name);
-  } else if (typeof abil === 'string') {
-    abilLine = toShowdownName(abil);
-  }
-  lines.push(`Ability: ${abilLine}`);
-
-  // Previous abilities (for evolved Pokémon)
-  const prev = Array.isArray(mon?.prevAbilities) ? mon.prevAbilities.filter(Boolean) : [];
-  if (prev.length) {
-    // Kept as a comment-style line so it remains readable in exports
-    // (and may still import in Showdown depending on parser tolerance).
-    lines.push(`# Previous Abilities: ${prev.map(toShowdownName).join(' / ')}`);
-  }
-
-  // "Tera Type" doesn't exist in this game yet; choose first type as a default placeholder
-  const tera = Array.isArray(mon?.types) && mon.types.length ? toShowdownName(mon.types[0]) : 'Normal';
-  lines.push(`Tera Type: ${tera}`);
-
-  // EVs/Nature aren't modeled yet; use a standard placeholder
-  lines.push(`EVs: 252 HP / 4 Def / 252 SpD`);
-  lines.push(`Calm Nature`);
-
-  const moves = Array.isArray(mon?.moves) ? mon.moves : [];
-  for (let i = 0; i < 4; i++) {
-    const mv = moves[i];
-    let mvName = '';
-    if (!mv) {
-      mvName = 'Tackle';
-    } else if (typeof mv === 'string') {
-      mvName = toShowdownName(mv);
-    } else {
-      // if illegal/custom move, output Custom
-      if (mv.kind === 'illegal' || mv.kind === 'custom') mvName = 'Custom';
-      else mvName = toShowdownName(mv.name || mv.id || '');
-    }
-    if (!mvName) mvName = 'Tackle';
-    lines.push(`- ${mvName}`);
-  }
-
-  return lines.join('\n');
-}
-
-function buildPCExportText() {
-  const mons = save?.caught || [];
-  if (!mons.length) return '';
-  return mons.map(formatMonToShowdown).join('\n\n');
-}
-
-function downloadTextFile(filename, text) {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-async function exportPCToFile() {
-  const text = buildPCExportText();
-  if (!text) {
-    setMessage('PC is empty.');
-    return;
-  }
-  downloadTextFile('pc-box.txt', text + '\n');
-  setMessage('Exported PC to pc-box.txt');
-}
-
-async function copyPCToClipboard() {
-  const text = buildPCExportText();
-  if (!text) {
-    setMessage('PC is empty.');
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text + '\n');
-    setMessage('Copied PC export to clipboard.');
-  } catch {
-    // Fallback
-    const ta = document.createElement('textarea');
-    ta.value = text + '\n';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-    setMessage('Copied PC export to clipboard.');
-  }
-}
-// ======================
-
-
+  // ======================
 
   return (
     <div className="app">
       <header className="topBar">
-  <div className="brand">Pokémon Catcher</div>
+        <div className="brand">Pokémon Catcher</div>
 
-  <div style={{ display: 'flex', gap: '8px' }}>
-    {/* Full reset */}
-    <button
-      className="btnSmall"
-      onClick={() => {
-        if (window.confirm('Reset all progress and start over?')) {
-          const fresh = defaultSave();
-          setSave(fresh);
-          saveSave(fresh);
-          resetToIdle();
-        }
-      }}
-      aria-label="Reset game"
-    >
-      Reset
-    </button>
-{/* Export / Copy PC */}
-<button
-  className="pcButton"
-  onClick={exportPCToFile}
-  aria-label="Export PC to TXT"
-  title="Export PC to TXT"
->
-  <span className="pcText">Export</span>
-</button>
-<button
-  className="pcButton"
-  onClick={copyPCToClipboard}
-  aria-label="Copy PC to clipboard"
-  title="Copy PC to clipboard"
->
-  <span className="pcText">Copy</span>
-</button>
-
-
-
-    {/* PC Box */}
-    <button
-      className="pcButton"
-      onClick={() => setShowPC(true)}
-      aria-label="Open PC Box"
-    >
-      <span className="pcIcon" />
-      <span className="pcText">PC</span>
-    </button>
-          <button className="btn backpackFab" onClick={() => setShowBackpack(v => !v)} title="Backpack">
-            🎒 {save.moveTokens ?? 0}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="btnSmall"
+            onClick={() => {
+              if (window.confirm('Reset all progress and start over?')) {
+                const fresh = defaultSave();
+                setSave(fresh);
+                saveSave(fresh);
+                resetToIdle();
+              }
+            }}
+            aria-label="Reset game"
+          >
+            Reset
           </button>
 
-  </div>
-</header>
+          <button
+            className="pcButton"
+            onClick={exportPCToFile}
+            aria-label="Export PC to TXT"
+            title="Export PC to TXT"
+          >
+            <span className="pcText">Export</span>
+          </button>
+          <button
+            className="pcButton"
+            onClick={copyPCToClipboard}
+            aria-label="Copy PC to clipboard"
+            title="Copy PC to clipboard"
+          >
+            <span className="pcText">Copy</span>
+          </button>
 
+          <button
+            className="pcButton"
+            onClick={() => setShowPC(true)}
+            aria-label="Open PC Box"
+          >
+            <span className="pcIcon" />
+            <span className="pcText">PC</span>
+          </button>
+
+          <div className="fabCluster">
+  <button
+    className="btn dexFab"
+    onClick={() => setShowDex(true)}
+    title="Pokédex"
+    aria-label="Open Pokédex"
+    type="button"
+  >
+    📘
+  </button>
+
+  <button
+    className="btn backpackFab"
+    onClick={() => {
+  grantDailyGiftIfAvailable();
+  setShowBackpack(v => !v);
+}}
+
+    title="Backpack"
+    aria-label="Open Backpack"
+    type="button"
+  >
+    🎒 {save.moveTokens ?? 0}
+  </button>
+</div>
+
+        </div>
+      </header>
 
       <main className="stage">
         {stage === 'idle' || stage === 'loading' ? (
@@ -859,271 +1093,290 @@ async function copyPCToClipboard() {
           </button>
         ) : null}
 
-        
-{(stage === 'ready' || stage === 'throwing' || stage === 'caught' || stage === 'broke') && wild ? (
-  <div className="encounter">
-    <div className="catchLayout">
-      <aside className="teamPane">
-        <div className="paneTitle">Team (3)</div>
-        {teamMons.length === 0 ? (
-          <div className="paneEmpty">Open PC and add up to 3 Pokémon.</div>
-        ) : (
-          <div className="teamList">
-            {teamMons.map((m) => (
-              <button
-                key={m.uid}
-                className={`teamSlot ${m.uid === activeTeamUid ? 'active' : ''}`}
-                onClick={() => setActiveTeam(m.uid)}
-                aria-label={`Set active ${m.name}`}
-              >
-                <SpriteWithFallback mon={m} className="teamSprite" alt={m.name} title={m.name} />
-                <div className="teamMeta">
-                  <div className="teamName">{m.name}</div>
-                  <div className="teamSub">#{m.dexId}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </aside>
+        {(stage === 'ready' || stage === 'throwing' || stage === 'caught' || stage === 'broke') && wild ? (
+          <div className="encounter">
+            {/* MOBILE: grass patches above the encounter card */}
+            {isMobile && stage === 'caught' && grassSlots.length ? (
+              <GrassPatches
+                slots={grassSlots}
+                onPick={chooseGrassSlot}
+                Sprite={SpriteWithFallback}
+              />
+            ) : null}
 
-      <div className="wildArea">
-        <div className="wildName">Wild {capName(wild.name)} appeared!</div>
-
-        {/* Mobile unified panel: Team + Active moves inside the main card */}
-        
-
-        <div className="wildSpriteWrap">
-          {/* rarity icon top-left */}
-          <div className="rarityCorner">
-            {wild.isDelta ? <RarityBadge badge={DELTA_BADGE} size={22} /> : null}
-            <RarityBadge badge={wild.badge} size={22} />
-          </div>
-
-          {wild.shiny ? (
-            <div className="shinyCorner" title="Shiny!">
-              ✨ Shiny
-            </div>
-          ) : null}
-
-          {attackAnim ? (
-            <>
-              <div key={attackAnim.id} className="attackProjectile" />
-              <div key={attackAnim.id + '-n'} className="attackFloat">+{attackAnim.amount}</div>
-            </>
-          ) : null}
-
-
-          {activeMon ? (
-            <>
-              <SpriteWithFallback
-  mon={activeMon}
-  className="activeOverlaySprite"
-  alt={activeMon.name}
-  title={activeMon.name}
-/>
-
-              <div className="activeLabel">Active</div>
-            </>
-          ) : null}
-
-          <SpriteWithFallback
-  mon={wild}
-  className={`wildSprite ${(stage === 'throwing' || stage === 'caught') ? 'fadeOut' : ''} ${(stage === 'broke') ? 'popIn' : ''}`}
-  alt={wild.name}
-  title={wild.name}
-/>
-
-
-          {activeBall && (stage === 'throwing' || stage === 'caught' || stage === 'broke') && (
-            <div className={`ballOverlay ${stage}`}>
-              <PokeballIcon variant={activeBall} size={96} />
-              {stage === 'caught' && <div className="sparkles" />}
-              {stage === 'broke' && <div className="crack" />}
-            </div>
-          )}
-          {/* Mobile catch rate badge (bottom-right) */}
-{(() => {
-  const r = currentEffectiveCaptureRate();
-  const pct = Math.round((r.total / 255) * 100);
-  return (
-    <div className="mobileCatchCorner" aria-label="Current catch rate">
-      <div className="mccTop">{r.total}/255</div>
-      <div className="mccBot">{pct}%</div>
-    </div>
-  );
-})()}
-
-        </div>
-
-        <div className="subInfo">
-          {(() => {
-            const r = currentEffectiveCaptureRate();
-            return (
-              <>
-                <div>Base catch rate: {wild.captureRate} / 255</div>
-                <div className="catchRateNow">Current catch rate: <b>{r.total} / 255</b></div>
-                {attackBonus > 0 ? <div>Move bonus: +{Math.round(attackBonus)}</div> : null}
-                {(wild.captureRate ?? 255) <= 100 && pityFails > 0 ? (
-                  <div>Pity: {r.pityRate} / 255 (max 100)</div>
-                ) : null}
-                {wild.rarity ? (
-                  <div style={{ marginTop: 6 }}>
-                    Rarity: <b>{capName(wild.rarity)}</b> • Buff: <b>{wild.buff?.kind ?? 'none'}</b>
+            <div className="catchLayout">
+              <aside className="teamPane">
+                <div className="paneTitle">Team (3)</div>
+                {teamMons.length === 0 ? (
+                  <div className="paneEmpty">Open PC and add up to 3 Pokémon.</div>
+                ) : (
+                  <div className="teamList">
+                    {teamMons.map((m) => (
+                      <button
+                        key={m.uid}
+                        className={`teamSlot ${m.uid === activeTeamUid ? 'active' : ''}`}
+                        onClick={() => setActiveTeam(m.uid)}
+                        aria-label={`Set active ${m.name}`}
+                      >
+                        <SpriteWithFallback mon={m} className="teamSprite" alt={m.name} title={m.name} />
+                        <div className="teamMeta">
+                          <div className="teamName">{m.name}</div>
+                          <div className="teamSub">#{m.dexId}</div>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                ) : null}
-              </>
-            );
-          })()}
-        </div>
+                )}
+              </aside>
 
-        <div className="ballsRow">
-          {BALLS.map(ball => (
-            <button
-              key={ball.key}
-              className={`ballBtn ${canThrow(ball.key) ? '' : 'disabled'}`}
-              onClick={() => throwBall(ball.key)}
-              disabled={!canThrow(ball.key)}
-              aria-label={`Throw ${ball.label}`}
-            >
-              <PokeballIcon variant={ball.key} size={54} />
-              <div className="ballCount">{save.balls?.[ball.key] ?? 0}</div>
-            </button>
-          ))}
-        </div>
+              <div className="wildArea">
+                <div className="wildName">Wild {capName(wild.name)} appeared!</div>
 
-        <div className="mobileMovesArea" aria-label="Moves">
-          {!activeMon ? (
-            <div className="mobileHint">Pick a team Pokémon (👥) to use moves.</div>
-          ) : (
-            <>
-              <div className="mobileActiveMeta">
-                <span className="mobileActiveName">{activeMon.name}</span>
-                <span className="mobileActiveSub">
-                  {monMovesUsedCount}/4 • Attacks {attacksLeft}/4 • KO {Math.round(nextKoChance * 100)}%
-                </span>
-                <div className="mobileBuffDesc">
+                <div className="wildSpriteWrap">
+                  <div className="rarityCorner">
+                    {wild.isDelta ? <RarityBadge badge={DELTA_BADGE} size={22} /> : null}
+                    <RarityBadge badge={wild.badge} size={22} />
+                  </div>
+
+                  {wild.shiny ? (
+                    <div className="shinyCorner" title="Shiny!">
+                      ✨ Shiny
+                    </div>
+                  ) : null}
+
+                  {attackAnim ? (
+                    <>
+                      <div key={attackAnim.id} className="attackProjectile" />
+                      <div key={attackAnim.id + '-n'} className="attackFloat">+{attackAnim.amount}</div>
+                    </>
+                  ) : null}
+
+                  {activeMon ? (
+                    <>
+                      <SpriteWithFallback
+                        mon={activeMon}
+                        className="activeOverlaySprite"
+                        alt={activeMon.name}
+                        title={activeMon.name}
+                      />
+                      <div className="activeLabel">Active</div>
+                    </>
+                  ) : null}
+
+                  <SpriteWithFallback
+                    mon={wild}
+                    className={`wildSprite ${(stage === 'throwing' || stage === 'caught') ? 'fadeOut' : ''} ${(stage === 'broke') ? 'popIn' : ''}`}
+                    alt={wild.name}
+                    title={wild.name}
+                  />
+
+                  {activeBall && (stage === 'throwing' || stage === 'caught' || stage === 'broke') && (
+                    <div className={`ballOverlay ${stage}`}>
+                      <PokeballIcon variant={activeBall} size={96} />
+                      {stage === 'caught' && <div className="sparkles" />}
+                      {stage === 'broke' && <div className="crack" />}
+                    </div>
+                  )}
+
                   {(() => {
-                    const parts = [];
-                    if (wild?.isDelta) parts.push('Delta Typing');
-                    const b = wild?.buff;
-                    if (!b || b.kind === 'none') {
-                      parts.push('No buff');
-                    } else if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
-                      parts.push(`+${b.amount} ${String(b.stat || '').toUpperCase()}`);
-                    } else if (b.kind === 'stat+15x2') {
-                      const a = String(b.stats?.[0] || '').toUpperCase();
-                      const c = String(b.stats?.[1] || '').toUpperCase();
-                      parts.push(`+${b.amount} ${a} & +${b.amount} ${c}`);
-                    } else if (b.kind === 'custom-move') {
-                      parts.push('Custom Move');
-                    } else if (b.kind === 'chosen-ability') {
-                      parts.push('Chosen Ability');
-                    } else {
-                      parts.push(String(b.kind));
-                    }
-                    return `Buff: ${parts.join(' • ')}`;
+                    const r = currentEffectiveCaptureRate();
+                    const pct = Math.round((r.total / 255) * 100);
+                    return (
+                      <div className="mobileCatchCorner" aria-label="Current catch rate">
+                        <div className="mccTop">{r.total}/255</div>
+                        <div className="mccBot">{pct}%</div>
+                      </div>
+                    );
                   })()}
                 </div>
-              </div>
 
-              <div className="mobileMovesGrid">
-                {(activeMon.moves ?? []).slice(0, 4).map((mv, idx) => (
-                  <button
-                    key={idx}
-                    className={`mobileMoveBtn ${usedMoves[idx] ? 'used' : ''}`}
-                    disabled={usedMoves[idx] || stage !== 'ready' || attacksLeft <= 0}
-                    onClick={() => useAssistMove(idx)}
-                  >
-                    {mv?.name ?? `Move ${idx + 1}`}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+                <div className="subInfo">
+                  {(() => {
+                    const r = currentEffectiveCaptureRate();
+                    return (
+                      <>
+                        <div>Base catch rate: {wild.captureRate} / 255</div>
+                        <div className="catchRateNow">Current catch rate: <b>{r.total} / 255</b></div>
+                        {attackBonus > 0 ? <div>Move bonus: +{Math.round(attackBonus)}</div> : null}
+                        {(wild.captureRate ?? 255) <= 100 && pityFails > 0 ? (
+                          <div>Pity: {r.pityRate} / 255 (max 100)</div>
+                        ) : null}
+                        {wild.rarity ? (
+                          <div style={{ marginTop: 6 }}>
+                            Rarity: <b>{capName(wild.rarity)}</b> • Buff: <b>{wild.buff?.kind ?? 'none'}</b>
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+                </div>
 
+                <div className="ballsRow">
+                  {BALLS.map(ball => (
+                    <button
+                      key={ball.key}
+                      className={`ballBtn ${canThrow(ball.key) ? '' : 'disabled'}`}
+                      onClick={() => throwBall(ball.key)}
+                      disabled={!canThrow(ball.key)}
+                      aria-label={`Throw ${ball.label}`}
+                    >
+                      <PokeballIcon variant={ball.key} size={54} />
+                      <div className="ballCount">{save.balls?.[ball.key] ?? 0}</div>
+                    </button>
+                  ))}
+                </div>
 
-        <div className="message">{message}</div>
+                <div className="mobileMovesArea" aria-label="Moves">
+                  {!activeMon ? (
+                    <div className="mobileHint">Pick a team Pokémon (👥) to use moves.</div>
+                  ) : (
+                    <>
+                      <div className="mobileActiveMeta">
+                        <span className="mobileActiveName">{activeMon.name}</span>
+                        <span className="mobileActiveSub">
+                          {monMovesUsedCount}/4 • Attacks {attacksLeft}/4 • KO {Math.round(nextKoChance * 100)}%
+                        </span>
+                        <div className="mobileBuffDesc">
+                          {(() => {
+                            const parts = [];
+                            if (wild?.isDelta) parts.push('Delta Typing');
+                            const b = wild?.buff;
+                            if (!b || b.kind === 'none') {
+                              parts.push('No buff');
+                            } else if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
+                              parts.push(`+${b.amount} ${String(b.stat || '').toUpperCase()}`);
+                            } else if (b.kind === 'stat+15x2') {
+                              const a = String(b.stats?.[0] || '').toUpperCase();
+                              const c = String(b.stats?.[1] || '').toUpperCase();
+                              parts.push(`+${b.amount} ${a} & +${b.amount} ${c}`);
+                            } else if (b.kind === 'custom-move') {
+                              parts.push('Custom Move');
+                            } else if (b.kind === 'chosen-ability') {
+                              parts.push('Chosen Ability');
+                            } else {
+                              parts.push(String(b.kind));
+                            }
+                            return `Buff: ${parts.join(' • ')}`;
+                          })()}
+                        </div>
+                      </div>
 
-        <div className="actionsRow">
-          {stage === 'caught' ? (
-            <>
-              <button className="btn" onClick={spawn}>Find another</button>
-              <button className="btnGhost" onClick={() => setShowPC(true)}>Open PC</button>
-            </>
-          ) : stage === 'broke' ? (
-            <>
-              <button className="btn" onClick={resetToReady}>Try again</button>
-              <button className="btnGhost" onClick={spawn}>Run & find another</button>
-            </>
-          ) : (
-            <button className="btnGhost" onClick={resetToIdle}>Reset</button>
-          )}
-        </div>
-      </div>
+                      <div className="mobileMovesGrid">
+                        {(activeMon.moves ?? []).slice(0, 4).map((mv, idx) => (
+                          <button
+                            key={idx}
+                            className={`mobileMoveBtn ${usedMoves[idx] ? 'used' : ''}`}
+                            disabled={usedMoves[idx] || stage !== 'ready' || attacksLeft <= 0}
+                            onClick={() => useAssistMove(idx)}
+                          >
+                            {mv?.name ?? `Move ${idx + 1}`}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
 
-      <aside className="movesPane">
-        <div className="paneTitle">Active Pokémon</div>
-        {!activeMon ? (
-          <div className="paneEmpty">Pick a team Pokémon in the PC to use moves.</div>
-        ) : (
-          <>
-            <div className="activeMonCard">
-              <SpriteWithFallback mon={activeMon} className="activeMonSprite" alt={activeMon.name} title={activeMon.name} />
+                <div className="message">{message}</div>
 
-              <div>
-                <div className="activeMonName">{activeMon.name}</div>
-                <div className="activeMonSub">
-                  Moves used: {monMovesUsedCount}/4 • Next KO chance: {Math.round(nextKoChance * 100)}%
+                <div className="actionsRow">
+                  {stage === 'caught' ? (
+                    <>
+                      <button className="btn" onClick={spawn}>Find another</button>
+                      <button className="btnGhost" onClick={() => setShowPC(true)}>Open PC</button>
+                    </>
+                  ) : stage === 'broke' ? (
+                    <>
+                      <button className="btn" onClick={resetToReady}>Try again</button>
+                      <button className="btnGhost" onClick={spawn}>Run & find another</button>
+                    </>
+                  ) : (
+                    <button className="btnGhost" onClick={resetToIdle}>Reset</button>
+                  )}
                 </div>
               </div>
-            </div>
 
-            <div className="movesGrid">
-              {(activeMon.moves ?? []).slice(0, 4).map((mv, idx) => (
-                <button
-                  key={idx}
-                  className={`moveBtn ${usedMoves[idx] ? 'used' : ''}`}
-                  disabled={usedMoves[idx] || stage !== 'ready' || attacksLeft <= 0}
-                  onClick={() => useAssistMove(idx)}
-                >
-                  {mv?.name ?? `Move ${idx + 1}`}
-                </button>
-              ))}
-            </div>
+              <aside className="movesPane">
+                <div className="paneTitle">Active Pokémon</div>
+                {!activeMon ? (
+                  <div className="paneEmpty">Pick a team Pokémon in the PC to use moves.</div>
+                ) : (
+                  <>
+                    <div className="activeMonCard">
+                      <SpriteWithFallback mon={activeMon} className="activeMonSprite" alt={activeMon.name} title={activeMon.name} />
+                      <div>
+                        <div className="activeMonName">{activeMon.name}</div>
+                        <div className="activeMonSub">
+                          Moves used: {monMovesUsedCount}/4 • Next KO chance: {Math.round(nextKoChance * 100)}%
+                        </div>
+                      </div>
+                    </div>
 
-            <div className="assistTip">
-              Attack to increase catch rate by 1–30. {Math.round(nextKoChance * 100)}% chance to KO.
-              <div style={{ opacity: 0.8, marginTop: 6 }}>
-                Each move can be used once per encounter.
-              </div>
-            </div>
-          </>
-        )}
-      </aside>
-    </div>
-  </div>
-) : null}
+                    <div className="movesGrid">
+                      {(activeMon.moves ?? []).slice(0, 4).map((mv, idx) => (
+                        <button
+                          key={idx}
+                          className={`moveBtn ${usedMoves[idx] ? 'used' : ''}`}
+                          disabled={usedMoves[idx] || stage !== 'ready' || attacksLeft <= 0}
+                          onClick={() => useAssistMove(idx)}
+                        >
+                          {mv?.name ?? `Move ${idx + 1}`}
+                        </button>
+                      ))}
+                    </div>
 
+                    <div className="assistTip">
+                      Attack to increase catch rate by 1–30. {Math.round(nextKoChance * 100)}% chance to KO.
+                      <div style={{ opacity: 0.8, marginTop: 6 }}>
+                        Each move can be used once per encounter.
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* DESKTOP: grass patches under the right pane */}
+                {!isMobile && stage === 'caught' && grassSlots.length ? (
+                  <div style={{ marginTop: 12 }}>
+                    <GrassPatches
+                      slots={grassSlots}
+                      onPick={chooseGrassSlot}
+                      Sprite={SpriteWithFallback}
+                    />
+                  </div>
+                ) : null}
+              </aside>
+            </div>
+          </div>
+        ) : null}
       </main>
 
       {showPC && (
-  <PCBox
+        <PCBox
+          caughtList={caughtList}
+          moveTokens={save.moveTokens ?? 0}
+          onReplaceMove={replaceMoveWithToken}
+          onRelease={releasePokemon}
+          teamUids={teamUids}
+          activeTeamUid={activeTeamUid}
+          onToggleTeam={toggleTeam}
+          onSetActiveTeam={setActiveTeam}
+          onClose={() => setShowPC(false)}
+          onEvolve={evolveCaught}
+        />
+      )}
+
+      {/* ✅ NEW: Pokédex modal */}
+      {showDex && (
+  <Pokedex
+    open={showDex}
+    onClose={() => setShowDex(false)}
+    dexList={fullDexList}
+    pokedex={save.pokedex ?? {}}
     caughtList={caughtList}
-    moveTokens={save.moveTokens ?? 0}
-    onReplaceMove={replaceMoveWithToken}
-    onRelease={releasePokemon}
-    teamUids={teamUids}
-    activeTeamUid={activeTeamUid}
-    onToggleTeam={toggleTeam}
-    onSetActiveTeam={setActiveTeam}
-    onClose={() => setShowPC(false)}
-    onEvolve={evolveCaught}
   />
 )}
 
-      
+
       {/* Team Drawer (mobile) */}
       <div
         className={`teamDrawer ${teamOpen ? 'open' : 'closed'}`}
@@ -1174,12 +1427,11 @@ async function copyPCToClipboard() {
         </div>
       </div>
 
-{/* Encounter Tracker */}
+      {/* Encounter Tracker */}
       <div
         className={`encounterTracker ${trackerOpen ? 'open' : 'closed'}`}
         aria-label="Encounter tracker"
       >
-        {/* Mobile collapsed button */}
         <button
           className="trackerToggle"
           onClick={() => setTrackerOpen(true)}
@@ -1190,7 +1442,6 @@ async function copyPCToClipboard() {
           👁
         </button>
 
-        {/* Panel (always visible on desktop via CSS) */}
         <div className="trackerPanel" role="dialog" aria-label="Encounter stats panel">
           <button
             className="trackerClose"
@@ -1225,31 +1476,26 @@ async function copyPCToClipboard() {
               <span className="trackerPair"><PokeballIcon size={14} />{encounter?.delta?.caught ?? 0}</span>
             </div>
           </div>
-        
 
-<div className="trackerRow trackerTotalRow">
-  <div className="trackerIcon" title="Total">Σ</div>
-  <div className="trackerCounts">
-    <span className="trackerPair"><span className="trackerSym" title="Total seen">👁</span>{
-      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.seen || 0), 0)
-    }</span>
-    <span className="trackerPair"><PokeballIcon size={14} />{
-      Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.caught || 0), 0)
-    }</span>
-  </div>
-</div>
-</div>
+          <div className="trackerRow trackerTotalRow">
+            <div className="trackerIcon" title="Total">Σ</div>
+            <div className="trackerCounts">
+              <span className="trackerPair"><span className="trackerSym" title="Total seen">👁</span>{
+                Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.seen || 0), 0)
+              }</span>
+              <span className="trackerPair"><PokeballIcon size={14} />{
+                Object.entries(encounter || {}).filter(([k]) => k !== 'shiny' && k !== 'delta').reduce((a, [, x]) => a + (x?.caught || 0), 0)
+              }</span>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
   );
 }
 
-
 function SpriteWithFallback({ mon, className, alt, title }) {
-  // Listen for global sprite-cache updates so parallel instances (team preview,
-  // active slot, PC grid) can immediately reuse the first working URL and avoid
-  // repeated 404s.
   const [tick, setTick] = React.useState(0);
   React.useEffect(() => {
     const h = () => setTick((x) => x + 1);
@@ -1260,8 +1506,6 @@ function SpriteWithFallback({ mon, className, alt, title }) {
   const candidates = React.useMemo(() => getShowdownSpriteCandidates(mon), [mon, tick]);
   const [i, setI] = React.useState(0);
 
-  // If candidates list changes (because cache updated), snap back to the first
-  // candidate so we use the cached URL immediately.
   React.useEffect(() => {
     setI(0);
   }, [tick]);
@@ -1275,32 +1519,9 @@ function SpriteWithFallback({ mon, className, alt, title }) {
       alt={alt || ''}
       title={title}
       onLoad={(e) => {
-        // Cache the first working sprite URL for this mon for the current session
         cacheSpriteSuccess(mon, e.currentTarget.currentSrc || src);
       }}
       onError={() => setI((prev) => Math.min(prev + 1, candidates.length - 1))}
     />
   );
-}
-
-// --- sprite resolution helpers ---
-
-
-async function resolveSpriteUrlList(urls) {
-  for (const url of (urls || [])) {
-    if (!url) continue;
-    const ok = await canLoad(url);
-    if (ok) return url;
-  }
-  // if nothing loads, return the first candidate (or empty)
-  return (urls && urls[0]) || '';
-}
-
-function canLoad(url) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
-    img.src = url;
-  });
 }

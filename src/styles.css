@@ -1037,15 +1037,251 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 
 
 /* Mobile: float the backpack button to bottom-center */
+/* --- FAB cluster: Dex + Backpack (mobile bottom-center) --- */
+.fabCluster{
+  display: contents; /* desktop: keep as-is in header */
+}
+
 @media (max-width: 640px) {
-  .backpackFab {
+  .fabCluster{
     position: fixed;
     left: 50%;
     transform: translateX(-50%);
     bottom: 12px;
     z-index: 60;
+    display: flex;
+    gap: 10px;
+  }
+
+  .dexFab,
+  .backpackFab{
+    position: static;      /* important: stop individual fixed positioning */
+    transform: none;
     border-radius: 999px;
     padding: 10px 14px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    min-width: 56px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
+}
+
+/* =========================
+   Pokédex Modal + Grid
+   (Ref 99976234)
+   ========================= */
+/* --- Pokédex: sticky header so Close is always accessible --- */
+.dexModalCard{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh; /* match your modalCard behavior */
+}
+
+.dexScroll{
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.dexStickyHeader{
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(15,23,42,.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  padding-bottom: 10px;
+}
+
+.dexHeaderRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.dexControls{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+  flex-wrap: wrap;
+}
+
+.dexSearch{
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  outline: none;
+  font-weight: 700;
+}
+
+.dexToggle{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dexToggle input{
+  transform: translateY(1px);
+}
+
+.dexMetaLine{
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.dexGrid{
+  display:grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.dexTile{
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  padding: 10px 8px 8px;
+  text-align:center;
+  overflow:hidden;
+}
+
+.dexSpriteWrap{
+  position: relative;
+  width: 100%;
+  height: 86px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.dexSprite{
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,.35));
+}
+
+.dexSprite.silhouette{
+  /* CSS silhouette for uncaught entries */
+  filter: brightness(0) saturate(100%) drop-shadow(0 10px 16px rgba(0,0,0,.35));
+  opacity: 0.55;
+}
+
+.dexName{
+  margin-top: 6px;
+  font-weight: 900;
+  font-size: 12px;
+  color: rgba(229,231,235,.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dexSub{
+  margin-top: 2px;
+  font-weight: 800;
+  font-size: 11px;
+  color: rgba(156,163,175,0.95);
+}
+
+.dexCornerBR{
+  position:absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+}
+
+.dexCornerTR{
+  position:absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 3;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(250, 204, 21, .15);
+  border: 1px solid rgba(250, 204, 21, .45);
+  color: rgba(250, 204, 21, .95);
+  font-weight: 900;
+  font-size: 13px;
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+}
+
+.dexCountsPill{
+  position:absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 3;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 11px;
+  background: rgba(0,0,0,0.30);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+}
+
+.dexLegend{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: rgba(156,163,175,0.95);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.dexLegend span{
+  display:flex;
+  align-items:center;
+  gap: 6px;
+}
+
+.dexDivider{
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 12px 0;
+}
+
+/* Make Dex modal look like PC box modal */
+.dexModalCard{
+  width: min(920px, 96vw);
+  max-height: 86vh;
+  overflow: auto;
+  border-radius: 20px;
+  border: 1px solid var(--ring);
+  background: rgba(15,23,42,.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 16px 40px rgba(0,0,0,.5);
+  padding: 14px;
+}
+
+/* Mobile tweaks */
+@media (max-width: 520px){
+  .dexGrid{
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+  .dexSpriteWrap{ height: 78px; }
+  .dexSprite{ width: 74px; height: 74px; }
 }
