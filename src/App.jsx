@@ -436,9 +436,10 @@ function grantDailyGiftIfAvailable() {
     }
     const toBaseId = toID(evolvedRecord.formId ?? evolvedRecord.speciesId ?? evolvedRecord.name);
 
-// ✅ Keep the old one forever + add the new one forever
-markPokedexCaught(fromBaseId, { shiny: !!mon.shiny });
-markPokedexCaught(toBaseId, { shiny: !!mon.shiny });
+// ✅ Keep the old base forever + add the new base forever (forms map to base species)
+bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta || mon.buff?.kind === 'delta-typing'));
+bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta || evolvedRecord.buff?.kind === 'delta-typing'));
+
 
 
     setSave(prev => {
@@ -447,26 +448,26 @@ markPokedexCaught(toBaseId, { shiny: !!mon.shiny });
       return { ...prev, caught: next };
     });
   }
-function getBaseDexNumFromAnyId(anyIdOrNum) {
-  // If it's already a number, assume it's a National Dex num.
-  if (typeof anyIdOrNum === 'number') return anyIdOrNum;
+function getBaseDexInfoFromAny(anyIdOrNum) {
+  // Returns { baseId, baseNum } where baseId is Showdown id of the base species
+  // and baseNum is its National Dex number (if available).
+  if (typeof anyIdOrNum === 'number') {
+    return { baseId: null, baseNum: anyIdOrNum };
+  }
 
   const id = toID(anyIdOrNum);
-  if (!id) return undefined;
+  if (!id) return { baseId: null, baseNum: undefined };
 
-  // Look up the entry for this id in dexLocal
   let entry = null;
   try {
-    entry = getDexById(id); // should return {id, num, name, baseSpecies?, forme?, ...}
+    entry = getDexById(id); // expects dexLocal entry
   } catch {
     entry = null;
   }
-  if (!entry) return undefined;
+  if (!entry) return { baseId: id, baseNum: undefined };
 
-  // If this is a form, prefer baseSpecies
-  const baseId = toID(entry.baseSpecies || entry.name || entry.id || id);
+  const baseId = toID(entry.baseSpecies || entry.baseSpeciesId || entry.name || entry.id || id);
 
-  // Look up the base entry to get its num
   let baseEntry = null;
   try {
     baseEntry = getDexById(baseId);
@@ -474,74 +475,95 @@ function getBaseDexNumFromAnyId(anyIdOrNum) {
     baseEntry = null;
   }
 
-  return baseEntry?.num ?? entry?.num ?? undefined;
+  const baseNum = baseEntry?.num ?? entry?.num;
+  return { baseId, baseNum: (typeof baseNum === 'number' ? baseNum : undefined) };
+}
+
+// convenience: keep your old name used elsewhere
+function getBaseDexNumFromAnyId(anyIdOrNum) {
+  return getBaseDexInfoFromAny(anyIdOrNum).baseNum;
 }
 
   // ======== POKEDEX (base forms only) ========
   // We key Dex by numeric National Dex number (base forms only).
-  function bumpDexSeenByNum(dexNum, isShiny, isDelta) {
-  if (typeof dexNum !== 'number') return;
+  function bumpDexSeenByNum(dexNum, isShiny, isDelta, baseIdMaybe) {
+  // dexNum is the base species National Dex number
+  // baseIdMaybe is optional base species id (e.g. "lycanroc") so Pokedex.jsx can read it too
+  if (typeof dexNum !== 'number' && !baseIdMaybe) return;
 
   setSave(prev => {
     const base = defaultSave();
     const cur = { ...base, ...prev };
     const dex = { ...(cur.pokedex ?? {}) };
 
-    const k = String(dexNum);
-    const old = dex[k] ?? {};
+    const apply = (key) => {
+      const old = dex[key] ?? {};
+      dex[key] = {
+        ...(old ?? {}),
+        // keep a copy if present
+        dexNum: old.dexNum ?? dexNum,
 
-    dex[k] = {
-      dexNum,
+        seen: Math.max(old.seen ?? 0, 1),
+        caught: old.caught ?? 0,
 
-      // ✅ Permanent seen flag
-      seen: Math.max(old.seen ?? 0, 1),
+        shinySeen: isShiny ? Math.max(old.shinySeen ?? 0, 1) : (old.shinySeen ?? 0),
+        deltaSeen: isDelta ? Math.max(old.deltaSeen ?? 0, 1) : (old.deltaSeen ?? 0),
 
-      // Preserve caught state if it exists
-      caught: old.caught ?? 0,
-
-      // Permanent shiny/delta seen flags
-      shinySeen: isShiny ? Math.max(old.shinySeen ?? 0, 1) : (old.shinySeen ?? 0),
-      deltaSeen: isDelta ? Math.max(old.deltaSeen ?? 0, 1) : (old.deltaSeen ?? 0),
-
-      // Preserve caught versions
-      shinyCaught: old.shinyCaught ?? 0,
-      deltaCaught: old.deltaCaught ?? 0,
+        shinyCaught: old.shinyCaught ?? 0,
+        deltaCaught: old.deltaCaught ?? 0,
+      };
     };
+
+    if (typeof dexNum === 'number') apply(String(dexNum));
+    if (baseIdMaybe) apply(toID(baseIdMaybe));
 
     return { ...cur, pokedex: dex };
   });
 }
 
 
-  function bumpDexCaughtByNum(dexNum, isShiny, isDelta) {
-  if (typeof dexNum !== 'number') return;
+
+  function bumpDexCaughtByNum(dexNum, isShiny, isDelta, baseIdMaybe) {
+  if (typeof dexNum !== 'number' && !baseIdMaybe) return;
 
   setSave(prev => {
     const base = defaultSave();
     const cur = { ...base, ...prev };
     const dex = { ...(cur.pokedex ?? {}) };
 
-    const k = String(dexNum);
-    const old = dex[k] ?? {};
+    const apply = (key) => {
+      const old = dex[key] ?? {};
+      dex[key] = {
+        ...(old ?? {}),
+        dexNum: old.dexNum ?? dexNum,
 
-    dex[k] = {
-      dexNum,
-      // ✅ Always at least 1 once we’ve ever encountered/caught it
-      seen: Math.max(old.seen ?? 0, 1),
-      // ✅ Permanent "caught" flag
-      caught: Math.max(old.caught ?? 0, 1),
+        seen: Math.max(old.seen ?? 0, 1),
+        caught: Math.max(old.caught ?? 0, 1),
 
-      // ✅ Also permanent flags (keep counts if you want, but never drop below 1 once achieved)
-      shinyCaught: isShiny ? Math.max(old.shinyCaught ?? 0, 1) : (old.shinyCaught ?? 0),
-      deltaCaught: isDelta ? Math.max(old.deltaCaught ?? 0, 1) : (old.deltaCaught ?? 0),
+        shinyCaught: isShiny ? Math.max(old.shinyCaught ?? 0, 1) : (old.shinyCaught ?? 0),
+        deltaCaught: isDelta ? Math.max(old.deltaCaught ?? 0, 1) : (old.deltaCaught ?? 0),
 
-      // keep these as-is (or you can also Math.max to 1 when relevant)
-      shinySeen: old.shinySeen ?? 0,
-      deltaSeen: old.deltaSeen ?? 0,
+        // preserve seen flags
+        shinySeen: old.shinySeen ?? 0,
+        deltaSeen: old.deltaSeen ?? 0,
+      };
     };
+
+    if (typeof dexNum === 'number') apply(String(dexNum));
+    if (baseIdMaybe) apply(toID(baseIdMaybe));
 
     return { ...cur, pokedex: dex };
   });
+}
+
+function bumpDexSeenFromAny(anyIdOrNum, isShiny, isDelta) {
+  const { baseId, baseNum } = getBaseDexInfoFromAny(anyIdOrNum);
+  bumpDexSeenByNum(baseNum, isShiny, isDelta, baseId);
+}
+
+function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta) {
+  const { baseId, baseNum } = getBaseDexInfoFromAny(anyIdOrNum);
+  bumpDexCaughtByNum(baseNum, isShiny, isDelta, baseId);
 }
 
 
@@ -593,9 +615,9 @@ function getBaseDexNumFromAnyId(anyIdOrNum) {
 
     bumpSeen(rarity.key, isShiny, isDelta);
 
-    // ✅ Dex seen (base forms only)
-    const dexNum = bundle.dexNum ?? bundle.num ?? (typeof bundle.id === 'number' ? bundle.id : undefined);
-    bumpDexSeenByNum(dexNum, isShiny, isDelta);
+    // ✅ Dex seen (base species, regardless of form)
+bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShiny, isDelta);
+
 
     const finalFallback = isShiny
       ? (bundle.fallbackShinySprite || bundle.fallbackSprite)
@@ -829,9 +851,13 @@ function getBaseDexNumFromAnyId(anyIdOrNum) {
 
           const record = await buildCaughtRecord(wild, spriteUrlResolved, isShiny);
 
-          // ✅ Dex caught (base forms only)
-          const dexNum = wild.dexNum ?? wild.num ?? (typeof wild.id === 'number' ? wild.id : undefined);
-          bumpDexCaughtByNum(dexNum, isShiny, !!record?.isDelta);
+          // ✅ Dex caught (base species, regardless of form)
+bumpDexCaughtFromAny(
+  record?.formId ?? record?.speciesId ?? wild.dexId ?? wild.name ?? wild.num ?? wild.id,
+  isShiny,
+  !!record?.isDelta
+);
+
 
           setSave(prev => {
             const base = defaultSave();
