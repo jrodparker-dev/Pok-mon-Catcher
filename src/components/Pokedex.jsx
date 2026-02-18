@@ -1,14 +1,15 @@
 import React from 'react';
 import RarityBadge from './RarityBadge.jsx';
 import { toID } from '../pokeapi.js';
-import { getAllBaseDexEntries, MAX_POKEDEX_NUM } from '../dexLocal.js';
+import { getAllBaseDexEntries, MAX_POKEDEX_NUM, getDexById } from '../dexLocal.js';
+import { RARITIES, DELTA_BADGE } from '../rarity.js';
 
 export default function Pokedex({
   open = true,
   onClose,
   dexList = null,           // optional override
-  pokedex = {},             // optional stats map
-  caughtList = [],          // your caught mons (for filling in + rarity + shiny)
+  pokedex = {},             // stats map keyed by dexNum string (ex: "157")
+  caughtList = [],          // caught mons (forms allowed)
   rarityFromCaught,         // optional fn(mon)=>badge
 }) {
   const [query, setQuery] = React.useState('');
@@ -16,25 +17,29 @@ export default function Pokedex({
 
   if (!open) return null;
 
-  // Build caught lookup by base id
-  const caughtByBase = React.useMemo(() => {
-    const map = new Map();
+  // Map caught mons -> base dexNum (so forms count toward base species)
+  const caughtByDexNum = React.useMemo(() => {
+    const map = new Map(); // key: dexNum (number), value: mons[]
     for (const m of (caughtList || [])) {
-      const fid = toID(
+      const anyId =
         m?.formId ||
         m?.speciesId ||
         (typeof m?.dexId === 'string' ? m.dexId : '') ||
-        m?.name
+        m?.name;
+
+      const baseDexNum = getBaseDexNumFromAnyId(anyId) ?? (
+        // fallback if your caught record already has numeric dexId
+        typeof m?.dexId === 'number' ? m.dexId : undefined
       );
-      const baseId = baseDexId(fid);
-      if (!baseId) continue;
-      if (!map.has(baseId)) map.set(baseId, []);
-      map.get(baseId).push(m);
+
+      if (typeof baseDexNum !== 'number') continue;
+      if (!map.has(baseDexNum)) map.set(baseDexNum, []);
+      map.get(baseDexNum).push(m);
     }
     return map;
   }, [caughtList]);
 
-  // Full dex list (base forms only) -> silhouettes until caught
+  // Base dex list (1..1025 base species)
   const normalizedDex = React.useMemo(() => {
     const list = (Array.isArray(dexList) && dexList.length)
       ? dexList
@@ -46,19 +51,21 @@ export default function Pokedex({
       const id = toID(e.id || e.name);
       if (!id) continue;
 
-      // This list should already be base forms (1..1025), but keep guard:
+      // This list should already be base forms, but keep guard:
       if (isAltFormId(id)) continue;
+
+      const num = typeof e.num === 'number' ? e.num : undefined;
+      if (typeof num !== 'number') continue;
 
       out.push({
         id,
         name: e.name || e.id || id,
-        num: typeof e.num === 'number' ? e.num : undefined,
+        num,
       });
     }
 
     out.sort((a, b) => (a.num ?? 99999) - (b.num ?? 99999));
 
-    // Hard expectation: 1025 base species
     const want = (typeof MAX_POKEDEX_NUM === 'number' ? MAX_POKEDEX_NUM : 1025);
     if (out.length !== want) {
       console.warn(`[Pokedex] Expected ${want} entries, got ${out.length}. Check dexLocal data.`);
@@ -70,41 +77,39 @@ export default function Pokedex({
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return normalizedDex.filter((d) => {
-      const baseId = baseDexId(d.id);
-      const entry = pokedex?.[baseId] || pokedex?.[d.id] || {};
-      const caughtArr = caughtByBase.get(baseId) || [];
+      const dexNum = d.num;
+      const entry = pokedex?.[String(dexNum)] || {};
+      const caughtArr = caughtByDexNum.get(dexNum) || [];
       const caughtCount = Math.max(entry.caught ?? 0, caughtArr.length);
-
 
       if (caughtOnly && !caughtCount) return false;
       if (!q) return true;
 
       const n = String(d.name || '').toLowerCase();
       const i = String(d.id || '').toLowerCase();
-      const nn = typeof d.num === 'number' ? String(d.num) : '';
+      const nn = String(dexNum);
       return n.includes(q) || i.includes(q) || nn === q;
     });
-  }, [normalizedDex, pokedex, caughtByBase, query, caughtOnly]);
+  }, [normalizedDex, pokedex, caughtByDexNum, query, caughtOnly]);
 
   const totals = React.useMemo(() => {
     const total = normalizedDex.length;
     let caught = 0;
     for (const d of normalizedDex) {
-      const baseId = baseDexId(d.id);
-      const entry = pokedex?.[baseId] || pokedex?.[d.id] || {};
-      const caughtArr = caughtByBase.get(baseId) || [];
+      const dexNum = d.num;
+      const entry = pokedex?.[String(dexNum)] || {};
+      const caughtArr = caughtByDexNum.get(dexNum) || [];
       const caughtCount = Math.max(entry.caught ?? 0, caughtArr.length);
-
       if (caughtCount > 0) caught += 1;
     }
     return { total, caught };
-  }, [normalizedDex, pokedex, caughtByBase]);
+  }, [normalizedDex, pokedex, caughtByDexNum]);
 
   return (
     <div className="modalOverlay" role="dialog" aria-label="Pokédex">
       <div className="dexModalCard">
 
-        {/* ✅ Sticky header: Close/search always accessible */}
+        {/* Sticky header */}
         <div className="dexStickyHeader">
           <div className="modalHeader" style={{ marginBottom: 10 }}>
             <div>
@@ -147,36 +152,32 @@ export default function Pokedex({
           <div className="dexDivider" />
         </div>
 
-        {/* ✅ Scrollable body: grid + legend */}
+        {/* Scrollable body */}
         <div className="dexScroll">
           <div className="dexGrid">
             {filtered.map((d) => {
-              const baseId = baseDexId(d.id);
-              const entry = pokedex?.[baseId] || pokedex?.[d.id] || {};
-              const caughtArr = caughtByBase.get(baseId) || [];
+              const dexNum = d.num;
+              const entry = pokedex?.[String(dexNum)] || {};
+              const caughtArr = caughtByDexNum.get(dexNum) || [];
 
               const caughtCount = Math.max(entry.caught ?? 0, caughtArr.length);
-
               const seenCount = Math.max(entry.seen ?? 0, caughtCount ? 1 : 0);
-
 
               const anyShinyCaught =
                 (entry.shinyCaught ?? 0) > 0 ||
                 caughtArr.some((m) => !!m?.shiny);
 
+              const caughtRarityKeys = new Set((caughtArr || []).map(m => String(m?.rarity || '').toLowerCase()).filter(Boolean));
+              const anyDeltaCaught = (entry.deltaCaught ?? 0) > 0 || caughtArr.some((m) => !!(m?.isDelta || m?.delta || m?.buff?.kind === 'delta-typing'));
+
               const isCaught = caughtCount > 0;
 
-              // Rarity badge: from caught mon
-              let rarityBadge = null;
-              if (isCaught) {
-                if (typeof rarityFromCaught === 'function') rarityBadge = rarityFromCaught(caughtArr[0]);
-                else rarityBadge = caughtArr[0]?.badge ?? null;
-              }
-
-              const spriteUrl = getHomePngSpriteUrl(baseId, anyShinyCaught);
+              // IMPORTANT: sprite should always use base ID from base dex entry, not a form id
+              const spriteBaseId = toID(d.id);
+              const spriteUrl = getHomePngSpriteUrl(spriteBaseId, anyShinyCaught);
 
               return (
-                <div key={baseId} className="dexTile" aria-label={`Dex entry ${d.name}`}>
+                <div key={dexNum} className="dexTile" aria-label={`Dex entry ${d.name}`}>
                   <div className="dexCountsPill" title="Seen / Caught">
                     👁 {seenCount} • 🧺 {caughtCount}
                   </div>
@@ -187,26 +188,40 @@ export default function Pokedex({
                     </div>
                   ) : null}
 
-                  {rarityBadge ? (
-                    <div className="dexCornerBR" title="Rarity">
-                      <RarityBadge badge={rarityBadge} size={18} />
-                    </div>
-                  ) : null}
-
                   <div className="dexSpriteWrap">
                     <img
                       className={`dexSprite ${isCaught ? '' : 'silhouette'}`}
                       src={spriteUrl}
-                      alt={String(d.name || baseId)}
-                      title={String(d.name || baseId)}
+                      alt={String(d.name || d.id)}
+                      title={String(d.name || d.id)}
                       loading="lazy"
                       draggable="false"
                     />
                   </div>
 
-                  <div className="dexName">{toPrettyName(d.name || baseId)}</div>
-                  <div className="dexSub">
-                    {typeof d.num === 'number' ? `#${d.num}` : `ID: ${baseId}`}
+                  <div className="dexName">{toPrettyName(d.name || d.id)}</div>
+                  <div className="dexSub">#{dexNum}</div>
+
+                  {/* Rarity strip: always show one of each rarity symbol (greyed if not caught) */}
+                  <div className="dexRarityStrip" aria-label="Rarity caught">
+                    {RARITIES.map((r) => {
+                      const active = caughtRarityKeys.has(r.key);
+                      return (
+                        <span
+                          key={r.key}
+                          className={`dexRarityIcon ${active ? 'active' : 'inactive'}`}
+                          title={`${r.label}${active ? ' caught' : ''}`}
+                        >
+                          <RarityBadge badge={r.badge} size={14} />
+                        </span>
+                      );
+                    })}
+                    <span
+                      className={`dexRarityIcon ${anyDeltaCaught ? 'active' : 'inactive'}`}
+                      title={`Delta${anyDeltaCaught ? ' caught' : ''}`}
+                    >
+                      <RarityBadge badge={DELTA_BADGE} size={14} />
+                    </span>
                   </div>
                 </div>
               );
@@ -220,7 +235,6 @@ export default function Pokedex({
             <span><span style={{ fontWeight: 900 }}>⬛</span> Silhouette = not caught</span>
           </div>
 
-          {/* Optional bottom close (handy on huge scroll) */}
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
             <button className="btnSmall" onClick={onClose} aria-label="Close Pokédex (bottom)">
               Close
@@ -252,7 +266,34 @@ function getHomePngSpriteUrl(id, shiny) {
   return `${base}${folder}/${toID(id)}.png`;
 }
 
-// Guard filter (shouldn’t be needed if using 1..1025 from dexLocal)
+// ✅ Core: form id -> base dex num (Rotom-Frost -> Rotom's num, Typhlosion-Hisui -> Typhlosion's num)
+function getBaseDexNumFromAnyId(anyIdOrNum) {
+  if (typeof anyIdOrNum === 'number') return anyIdOrNum;
+
+  const id = toID(anyIdOrNum);
+  if (!id) return undefined;
+
+  let entry = null;
+  try {
+    entry = getDexById({ id });
+  } catch {
+    entry = null;
+  }
+  if (!entry) return undefined;
+
+  const baseId = toID(entry.baseSpecies || entry.name || entry.id || id);
+
+  let baseEntry = null;
+  try {
+    baseEntry = getDexById({ id: baseId });
+  } catch {
+    baseEntry = null;
+  }
+
+  return baseEntry?.num ?? entry?.num ?? undefined;
+}
+
+// Guard filter (shouldn’t be needed if using base list, but kept)
 function isAltFormId(idRaw) {
   const id = toID(idRaw);
   if (!id) return false;
@@ -289,8 +330,4 @@ function isAltFormId(idRaw) {
   if (parts.length >= 3) return true;
 
   return false;
-}
-
-function baseDexId(idRaw) {
-  return toID(idRaw);
 }

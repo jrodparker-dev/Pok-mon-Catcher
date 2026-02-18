@@ -451,26 +451,53 @@ bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta || evolvedR
 function getBaseDexInfoFromAny(anyIdOrNum) {
   // Returns { baseId, baseNum } where baseId is Showdown id of the base species
   // and baseNum is its National Dex number (if available).
+
+  // If it's already a number, assume it's a National Dex num.
   if (typeof anyIdOrNum === 'number') {
     return { baseId: null, baseNum: anyIdOrNum };
   }
 
-  const id = toID(anyIdOrNum);
-  if (!id) return { baseId: null, baseNum: undefined };
+  const raw = String(anyIdOrNum ?? '').trim();
+  if (!raw) return { baseId: null, baseNum: undefined };
+
+  // If someone passed "479" as a string, treat as number
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return { baseId: null, baseNum: Number.isFinite(n) ? n : undefined };
+  }
+
+  // Try multiple candidate ids (handles things like "rotomfrost" -> "rotom-frost")
+  const baseInputId = toID(raw);
+  const candidates = expandDexIdCandidates(baseInputId);
 
   let entry = null;
-  try {
-    entry = getDexById(id); // expects dexLocal entry
-  } catch {
-    entry = null;
-  }
-  if (!entry) return { baseId: id, baseNum: undefined };
+  let usedId = null;
 
-  const baseId = toID(entry.baseSpecies || entry.baseSpeciesId || entry.name || entry.id || id);
+  for (const cid of candidates) {
+    try {
+      // dexLocal.getDexById expects an object {id} or {num}
+      const e = getDexById({ id: cid });
+      if (e) {
+        entry = e;
+        usedId = cid;
+        break;
+      }
+    } catch {
+      // keep trying
+    }
+  }
+
+  // If dexLocal doesn't recognize it, at least return the normalized id (best effort)
+  if (!entry) {
+    return { baseId: baseInputId, baseNum: undefined };
+  }
+
+  // baseSpecies is how we map forms -> base
+  const baseId = toID(entry.baseSpecies || entry.baseSpeciesId || entry.id || entry.name || usedId || baseInputId);
 
   let baseEntry = null;
   try {
-    baseEntry = getDexById(baseId);
+    baseEntry = getDexById({ id: baseId });
   } catch {
     baseEntry = null;
   }
@@ -479,9 +506,48 @@ function getBaseDexInfoFromAny(anyIdOrNum) {
   return { baseId, baseNum: (typeof baseNum === 'number' ? baseNum : undefined) };
 }
 
-// convenience: keep your old name used elsewhere
-function getBaseDexNumFromAnyId(anyIdOrNum) {
-  return getBaseDexInfoFromAny(anyIdOrNum).baseNum;
+function expandDexIdCandidates(id) {
+  const out = [];
+  const seen = new Set();
+
+  const push = (x) => {
+    const t = toID(x);
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+
+  // original
+  push(id);
+
+  // If already hyphenated, also try de-hyphenated (rare, but harmless)
+  if (id.includes('-')) {
+    push(id.replace(/-/g, ''));
+    return out;
+  }
+
+  // Common suffix tokens that appear in Showdown ids
+  const suffixes = [
+    'alola', 'galar', 'hisui', 'paldea',
+    'dusk', 'dawn',
+    'frost', 'fan', 'heat', 'wash', 'mow',
+    'origin', 'crowned', 'complete', 'school', 'zen',
+    'therian', 'incarnate',
+    'attack', 'defense', 'speed',
+    'sunny', 'rainy', 'snowy',
+    'stretchy', 'droopy',
+    'artisan', // poltchageistartisan etc
+    'stellar', // terapagosstellar etc
+  ];
+
+  // Try inserting a hyphen before any matching suffix at the end
+  for (const suf of suffixes) {
+    if (id.endsWith(suf) && id.length > suf.length) {
+      push(id.slice(0, -suf.length) + '-' + suf);
+    }
+  }
+
+  return out;
 }
 
   // ======== POKEDEX (base forms only) ========

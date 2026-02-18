@@ -1201,6 +1201,32 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   color: rgba(156,163,175,0.95);
 }
 
+/* Pokédex rarity strip (all rarity symbols, greyed if not caught) */
+.dexRarityStrip{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dexRarityIcon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 16px;
+  height: 16px;
+}
+
+.dexRarityIcon.inactive{
+  opacity: 0.22;
+  filter: grayscale(1);
+}
+
+.dexRarityIcon.active{
+  opacity: 0.95;
+}
+
 .dexCornerBR{
   position:absolute;
   right: 8px;
