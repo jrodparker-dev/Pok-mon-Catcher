@@ -1,5 +1,5 @@
 // App.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getShowdownSpriteCandidates, cacheSpriteSuccess, SPRITE_CACHE_EVENT } from './spriteLookup.js';
 import RarityBadge from './components/RarityBadge.jsx';
 import GrassPatches from './components/GrassPatches.jsx';
@@ -14,7 +14,7 @@ import { getAllBaseDexEntries } from './dexLocal.js';
 import { getDexById } from './dexLocal.js';
 
 
-const BASE_SHINY_CHANCE = 0.025; // 2.5%
+const BASE_SHINY_CHANCE = 1 / 500; // default: 1 in 500
 const SHINY_STREAK_BONUS = 0.005; // +0.5% per consecutive catch
 const MAX_SHINY_CHANCE = 0.10; // safety cap (10%)
 
@@ -59,6 +59,7 @@ export default function App() {
       ...loaded,
       balls: { ...base.balls, ...(loaded.balls ?? {}) },
       encounter: { ...base.encounter, ...(loaded.encounter ?? {}) },
+      settings: { ...(base.settings ?? {}), ...(loaded.settings ?? {}) },
       // ensure pokedex bucket exists
       pokedex: { ...(base.pokedex ?? {}), ...(loaded.pokedex ?? {}) },
       caught: (loaded.caught ?? base.caught ?? []).map((m) => {
@@ -94,6 +95,9 @@ export default function App() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const devCheat = useRef({bagTaps: 0, armed: false, lastTap: 0});
+
 
   // ✅ NEW: Pokedex modal state
   const [showDex, setShowDex] = useState(false);
@@ -109,6 +113,44 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const pityMultiplier = Math.min(5, 1 + pityFails);
 
   const encounter = save.encounter ?? defaultSave().encounter;
+  const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
+
+  function updateSetting(key, value) {
+    setSave(prev => {
+      const base = defaultSave();
+      const nextSettings = { ...(base.settings ?? {}), ...(prev.settings ?? {}) };
+      nextSettings[key] = value;
+      return { ...prev, settings: nextSettings };
+    });
+  }
+
+  function resetBallsToDefault() {
+    const base = defaultSave();
+    setSave(prev => ({ ...prev, balls: { ...(base.balls ?? {}) } }));
+  }
+
+
+  function resetPCBox() {
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const locked = caught.filter(m => !!m.locked);
+      const lockedUids = new Set(locked.map(m => m.uid));
+      const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(uid => lockedUids.has(uid)) : [];
+      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
+      return { ...prev, caught: locked, teamUids, activeTeamUid };
+    });
+  }
+
+  function toggleLockPokemon(uid) {
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const idx = caught.findIndex(m => m.uid === uid);
+      if (idx < 0) return prev;
+      const next = caught.slice();
+      next[idx] = { ...next[idx], locked: !next[idx].locked };
+      return { ...prev, caught: next };
+    });
+  }
 
   // Team (up to 3) and battle-assist state (per encounter)
   const teamUids = Array.isArray(save.teamUids) ? save.teamUids.slice(0, 3) : [];
@@ -337,17 +379,99 @@ function grantDailyGiftIfAvailable() {
       const idx = caught.findIndex(m => m.uid === uid);
       if (idx < 0) return prev;
 
-      const ballKey = pickRandomBallKey();
-      const balls = { ...(prev.balls ?? {}) };
-      balls[ballKey] = (balls[ballKey] ?? 0) + 1;
 
-      const moveTokens = (prev.moveTokens ?? 0) + 1;
+      if (caught[idx]?.locked) {
+        // Locked Pokémon cannot be released except via full reset.
+        setMessage('That Pokémon is locked. Unlock it in the detail screen to release.');
+        return prev;
+      }
+
+      const base = defaultSave();
+      const curSettings = { ...(base.settings ?? {}), ...(prev.settings ?? {}) };
+
+      const balls = { ...(prev.balls ?? {}) };
+      if (curSettings.ballOnRelease) {
+        const ballKey = pickRandomBallKey();
+        balls[ballKey] = (balls[ballKey] ?? 0) + 1;
+      }
+
+      const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
       const nextCaught = caught.slice(0, idx).concat(caught.slice(idx + 1));
       const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => x !== uid) : [];
       const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
 
       return { ...prev, balls, moveTokens, caught: nextCaught, teamUids, activeTeamUid };
+    });
+  }
+
+
+  function releaseManyPokemon(uids) {
+    const uidSet = new Set((uids || []).filter(Boolean));
+    if (!uidSet.size) return;
+
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      if (!caught.length) return prev;
+
+      const base = defaultSave();
+      const curSettings = { ...(base.settings ?? {}), ...(prev.settings ?? {}) };
+
+      const balls = { ...(prev.balls ?? {}) };
+      let moveTokens = prev.moveTokens ?? 0;
+
+      const remaining = [];
+      let removed = 0;
+      let removedLocked = 0;
+
+      for (const m of caught) {
+        if (!m || !uidSet.has(m.uid)) {
+          remaining.push(m);
+          continue;
+        }
+        if (m.locked) {
+          removedLocked++;
+          remaining.push(m);
+          continue;
+        }
+        removed++;
+
+        if (curSettings.ballOnRelease) {
+          const ballKey = pickRandomBallKey();
+          balls[ballKey] = (balls[ballKey] ?? 0) + 1;
+        }
+        if (curSettings.moveTokenOnRelease) {
+          moveTokens += 1;
+        }
+      }
+
+      // Remove from team if released
+      const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => remaining.some(m => m.uid === x)) : [];
+      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
+
+      if (removedLocked > 0 && removed === 0) {
+        setMessage('All selected Pokémon are locked.');
+      } else if (removed > 0) {
+        setMessage(removedLocked > 0 ? `Released ${removed} Pokémon. (${removedLocked} locked skipped.)` : `Released ${removed} Pokémon.`);
+      }
+
+      return { ...prev, balls, moveTokens, caught: remaining, teamUids, activeTeamUid };
+    });
+  }
+
+  function setLockManyPokemon(uids, locked) {
+    const uidSet = new Set((uids || []).filter(Boolean));
+    if (!uidSet.size) return;
+
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      if (!caught.length) return prev;
+
+      const next = caught.map(m => {
+        if (!m || !uidSet.has(m.uid)) return m;
+        return { ...m, locked: !!locked };
+      });
+      return { ...prev, caught: next };
     });
   }
 
@@ -417,8 +541,12 @@ function grantDailyGiftIfAvailable() {
     setMovesUsedSinceThrow(prev => prev + 1);
 
     if (ko) {
-      const ballKey = awardRandomBall();
-      setMessage(`Oh no! ${capName(wild.name)} was KO'd. You found a ${capName(ballKey)} ball!`);
+      let rewardText = '';
+      if (settings.ballOnDefeat) {
+        const ballKey = awardRandomBall();
+        rewardText = ` You found a ${capName(ballKey)} ball!`;
+      }
+      setMessage(`Oh no! ${capName(wild.name)} was KO'd.${rewardText}`);
       advanceActiveTeam();
       setPityFails(0);
       setCatchStreak(0);
@@ -506,6 +634,7 @@ function grantDailyGiftIfAvailable() {
 
     evolvedRecord.uid = mon.uid;
     evolvedRecord.caughtAt = mon.caughtAt;
+    evolvedRecord.locked = !!mon.locked;
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
@@ -648,14 +777,18 @@ function expandDexIdCandidates(id) {
         // keep a copy if present
         dexNum: old.dexNum ?? dexNum,
 
-        seen: Math.max(old.seen ?? 0, 1),
+        // Count EVERY encounter as "seen"
+        seen: (old.seen ?? 0) + 1,
         caught: old.caught ?? 0,
 
-        shinySeen: isShiny ? Math.max(old.shinySeen ?? 0, 1) : (old.shinySeen ?? 0),
-        deltaSeen: isDelta ? Math.max(old.deltaSeen ?? 0, 1) : (old.deltaSeen ?? 0),
+        shinySeen: isShiny ? ((old.shinySeen ?? 0) + 1) : (old.shinySeen ?? 0),
+        deltaSeen: isDelta ? ((old.deltaSeen ?? 0) + 1) : (old.deltaSeen ?? 0),
 
         shinyCaught: old.shinyCaught ?? 0,
         deltaCaught: old.deltaCaught ?? 0,
+
+        // preserve any permanent rarity progress if present
+        rarityCaught: (old.rarityCaught && typeof old.rarityCaught === 'object') ? old.rarityCaught : undefined,
       };
     };
 
@@ -682,20 +815,24 @@ function expandDexIdCandidates(id) {
       const nextRarity = { ...prevRarity };
       const rk = String(rarityKey || '').toLowerCase();
       if (rk) nextRarity[rk] = Math.max(nextRarity[rk] ?? 0, 1);
+
       dex[key] = {
         ...(old ?? {}),
         dexNum: old.dexNum ?? dexNum,
 
+        // Do NOT increment seen here (spawn already does it); just ensure it isn't empty.
         seen: Math.max(old.seen ?? 0, 1),
-        caught: Math.max(old.caught ?? 0, 1),
 
-        shinyCaught: isShiny ? Math.max(old.shinyCaught ?? 0, 1) : (old.shinyCaught ?? 0),
-        deltaCaught: isDelta ? Math.max(old.deltaCaught ?? 0, 1) : (old.deltaCaught ?? 0),
+        // Count EVERY catch permanently (even if later released/evolved)
+        caught: (old.caught ?? 0) + 1,
 
-        // Permanent rarity progress (do NOT derive from PC box)
+        shinyCaught: isShiny ? ((old.shinyCaught ?? 0) + 1) : (old.shinyCaught ?? 0),
+        deltaCaught: isDelta ? ((old.deltaCaught ?? 0) + 1) : (old.deltaCaught ?? 0),
+
+        // Permanent rarity unlocks (do NOT derive from PC box)
         rarityCaught: nextRarity,
 
-        // preserve seen flags
+        // preserve seen counters
         shinySeen: old.shinySeen ?? 0,
         deltaSeen: old.deltaSeen ?? 0,
       };
@@ -707,6 +844,8 @@ function expandDexIdCandidates(id) {
     return { ...cur, pokedex: dex };
   });
 }
+
+
 
 function bumpDexSeenFromAny(anyIdOrNum, isShiny, isDelta) {
   const { baseId, baseNum } = getBaseDexInfoFromAny(anyIdOrNum);
@@ -759,7 +898,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey) {
 
     const rarity = pickWeightedRarity();
     const buff = makeBuff(rarity.key, bundle);
-    const shinyChance = Math.min(MAX_SHINY_CHANCE, BASE_SHINY_CHANCE + SHINY_STREAK_BONUS * catchStreak);
+    const baseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
+    const shinyChance = Math.min(MAX_SHINY_CHANCE, baseShiny + SHINY_STREAK_BONUS * catchStreak);
     const isShiny = Math.random() < shinyChance;
 
     const isDelta = rollDelta(rarity.key);
@@ -994,7 +1134,12 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
       (async () => {
         if (caught) {
           setStage('caught');
-          setMessage(`Gotcha! ${capName(wild.name)} was caught!`);
+          let rewardText = '';
+          if (settings.ballOnCatch) {
+            const ballKey = awardRandomBall();
+            rewardText = ` You found a ${capName(ballKey)} ball!`;
+          }
+          setMessage(`Gotcha! ${capName(wild.name)} was caught!${rewardText}`);
           setPityFails(0);
           setAttacksLeft(4);
           setCatchStreak((s) => s + 1);
@@ -1191,17 +1336,12 @@ bumpDexCaughtFromAny(
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className="btnSmall"
-            onClick={() => {
-              if (window.confirm('Reset all progress and start over?')) {
-                const fresh = defaultSave();
-                setSave(fresh);
-                saveSave(fresh);
-                resetToIdle();
-              }
-            }}
-            aria-label="Reset game"
+            onClick={() => setShowSettings(true)}
+            aria-label="Open Settings"
+            title="Settings"
+            type="button"
           >
-            Reset
+            ⚙️
           </button>
 
           <button
@@ -1233,7 +1373,21 @@ bumpDexCaughtFromAny(
           <div className="fabCluster">
   <button
     className="btn dexFab"
-    onClick={() => setShowDex(true)}
+    onClick={() => {
+      // Secret dev cheat: tap backpack 5x then Pokédex
+      if (devCheat.current.armed) {
+        setSave(prev => {
+          const base = defaultSave();
+          const cur = { ...base, ...prev, balls: { ...base.balls, ...(prev?.balls ?? {}) } };
+          const nextBalls = { ...cur.balls };
+          for (const k of Object.keys(nextBalls)) nextBalls[k] = (nextBalls[k] ?? 0) + 99;
+          return { ...cur, balls: nextBalls };
+        });
+        devCheat.current.armed = false;
+        devCheat.current.bagTaps = 0;
+      }
+      setShowDex(true);
+    }}
     title="Pokédex"
     aria-label="Open Pokédex"
     type="button"
@@ -1244,6 +1398,13 @@ bumpDexCaughtFromAny(
   <button
     className="btn backpackFab"
     onClick={() => {
+  // Secret dev cheat arming: tap backpack 5 times (within 3s between taps)
+  const now = Date.now();
+  if (now - (devCheat.current.lastTap || 0) > 3000) devCheat.current.bagTaps = 0;
+  devCheat.current.lastTap = now;
+  devCheat.current.bagTaps = (devCheat.current.bagTaps || 0) + 1;
+  if (devCheat.current.bagTaps >= 5) devCheat.current.armed = true;
+
   grantDailyGiftIfAvailable();
   setShowBackpack(v => !v);
 }}
@@ -1546,6 +1707,9 @@ bumpDexCaughtFromAny(
           moveTokens={save.moveTokens ?? 0}
           onReplaceMove={replaceMoveWithToken}
           onRelease={releasePokemon}
+          onReleaseMany={releaseManyPokemon}
+          onToggleLock={toggleLockPokemon}
+          onSetLockMany={setLockManyPokemon}
           teamUids={teamUids}
           activeTeamUid={activeTeamUid}
           onToggleTeam={toggleTeam}
@@ -1680,6 +1844,93 @@ bumpDexCaughtFromAny(
           </div>
         </div>
       </div>
+
+      {showSettings ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Settings" onClick={() => setShowSettings(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <div className="modalTitle">Settings</div>
+                <div className="modalSub">Difficulty & rewards</div>
+              </div>
+              <button className="btnGhost" onClick={() => setShowSettings(false)} aria-label="Close settings" title="Close" type="button">✕</button>
+            </div>
+
+            <div className="settingsGroup">
+              <div className="settingsHeading">Rewards</div>
+
+              <label className="settingsRow">
+                <input type="checkbox" checked={!!settings.ballOnCatch} onChange={(e) => updateSetting('ballOnCatch', e.target.checked)} />
+                <span>Receive Ball on catch</span>
+              </label>
+              <label className="settingsRow">
+                <input type="checkbox" checked={!!settings.ballOnDefeat} onChange={(e) => updateSetting('ballOnDefeat', e.target.checked)} />
+                <span>Receive Ball on defeat (KO)</span>
+              </label>
+              <label className="settingsRow">
+                <input type="checkbox" checked={!!settings.ballOnRelease} onChange={(e) => updateSetting('ballOnRelease', e.target.checked)} />
+                <span>Receive Ball on release</span>
+              </label>
+              <label className="settingsRow">
+                <input type="checkbox" checked={!!settings.moveTokenOnRelease} onChange={(e) => updateSetting('moveTokenOnRelease', e.target.checked)} />
+                <span>Receive Move token on release</span>
+              </label>
+            </div>
+
+            <div className="settingsGroup">
+              <div className="settingsHeading">Shiny rates</div>
+              <label className="settingsRow">
+                <input type="checkbox" checked={!!settings.shinyCharm} onChange={(e) => updateSetting('shinyCharm', e.target.checked)} />
+                <span>Shiny Charm (boosts base rate from 1/500 to 2.5%)</span>
+              </label>
+              <div className="settingsHint">
+                Current base shiny rate: <b>{settings.shinyCharm ? '2.5%' : '1/500'}</b>
+              </div>
+            </div>
+
+            <div className="settingsActions">
+              <button
+                className="btnSmall"
+                onClick={() => {
+                  if (!window.confirm('Reset balls back to the default amounts?')) return;
+                  resetBallsToDefault();
+                  setMessage('Balls reset to default amounts.');
+                }}
+                type="button"
+              >
+                Reset Balls
+              </button>
+
+              <button
+                className="btnSmall"
+                onClick={() => {
+                  if (!window.confirm('Release all unlocked Pokémon in your PC Box? Locked Pokémon will be kept. (No rewards)')) return;
+                  resetPCBox();
+                  setMessage('PC Box cleared (locked Pokémon kept).');
+                }}
+                type="button"
+              >
+                Reset PC Box
+              </button>
+
+              <button
+                className="btnSmall danger"
+                onClick={() => {
+                  if (!window.confirm('Reset all progress and start over?')) return;
+                  const fresh = defaultSave();
+                  setSave(fresh);
+                  saveSave(fresh);
+                  resetToIdle();
+                  setShowSettings(false);
+                }}
+                type="button"
+              >
+                Reset from scratch
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
     </div>
   );

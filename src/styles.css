@@ -327,6 +327,48 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 }
 
 /* =====================
+   Settings modal
+   ===================== */
+.settingsGroup{
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.settingsGroup:last-child{
+  border-bottom: none;
+}
+.settingsHeading{
+  font-weight: 900;
+  letter-spacing: .2px;
+  margin-bottom: 8px;
+}
+.settingsRow{
+  display:flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  font-weight: 700;
+}
+.settingsRow input{
+  width: 18px;
+  height: 18px;
+}
+.settingsHint{
+  font-size: 13px;
+  opacity: .9;
+  padding: 4px 4px 0 32px;
+}
+.settingsActions{
+  display:flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+.btnSmall.danger{
+  border-color: rgba(239,68,68,.55);
+  background: rgba(239,68,68,.14);
+}
+
+/* =====================
    PC Box controls
    ===================== */
 .pcStickyHeader{
@@ -1501,3 +1543,10 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   .dexSpriteWrap{ height: 78px; }
   .dexSprite{ width: 74px; height: 74px; }
 }
+
+
+/* PC Box bulk actions + rarity checkboxes */
+.pcBulkActions{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;}
+.pcRarityFilters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.pcRarityToggle{padding:6px 8px;}
+.pcRarityToggleIcon{display:inline-flex;align-items:center;justify-content:center;}

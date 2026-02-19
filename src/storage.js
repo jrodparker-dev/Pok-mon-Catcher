@@ -16,6 +16,18 @@ export function saveSave(data) {
 
 export function defaultSave() {
   return {
+    // Gameplay settings (difficulty toggles)
+    settings: {
+      // Rewards
+      ballOnCatch: false,
+      ballOnDefeat: true,
+      ballOnRelease: true,
+      moveTokenOnRelease: true,
+
+      // Shiny rates
+      // Base rate is 1/500; enabling Shiny Charm boosts to the old 2.5%.
+      shinyCharm: false,
+    },
     balls: { poke: 25, great: 15, ultra: 10, master: 1 },
     moveTokens: 0,
     // Pokédex progress keyed by base National Dex number (as string) and sometimes base id convenience keys.

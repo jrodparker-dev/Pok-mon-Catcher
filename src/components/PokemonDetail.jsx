@@ -54,7 +54,7 @@ function SpriteWithFallback({ mon, className }) {
   );
 }
 
-export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease }) {
+export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock }) {
   const [canEvolve, setCanEvolve] = useState(false);
   const [checkingEvo, setCheckingEvo] = useState(true);
   const [evoOptions, setEvoOptions] = useState([]);
@@ -378,11 +378,24 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
             ) : null}
           </div>
 
-          {onRelease ? (
+          
+          {onToggleLock ? (
+            <button
+              className="btnSmall"
+              onClick={() => onToggleLock(mon.uid)}
+              type="button"
+              title={mon?.locked ? 'Unlock (allow release)' : 'Lock (prevent release)'}
+            >
+              {mon?.locked ? 'Unlock' : 'Lock'}
+            </button>
+          ) : null}
+
+{onRelease ? (
             <button
               className="btnSmall"
               onClick={() => {
-                const ok = window.confirm('Release this Pokémon? You will get 1 random ball and 1 move token.');
+                if (mon?.locked) { alert('This Pokémon is locked and cannot be released unless you unlock it (or do a full reset from scratch).'); return; }
+                const ok = window.confirm('Release this Pokémon?');
                 if (!ok) return;
                 onRelease(mon.uid);
                 onClose();

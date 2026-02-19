@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import PokemonDetail from './PokemonDetail.jsx';
 import RarityBadge from './RarityBadge.jsx';
-import { DELTA_BADGE } from '../rarity.js';
+import { DELTA_BADGE, RARITIES } from '../rarity.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
 
 function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
@@ -42,17 +42,21 @@ function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
   );
 }
 
-export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease }) {
+export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany }) {
   const [selectedUid, setSelectedUid] = useState(null);
   const [query, setQuery] = useState('');
-  const [rarityFilter, setRarityFilter] = useState('all');
+  const [rarityChecks, setRarityChecks] = useState(() => ({ common: false, uncommon: false, rare: false, legendary: false, delta: false }));
   const [shinyOnly, setShinyOnly] = useState(false);
-  const [deltaOnly, setDeltaOnly] = useState(false);
-  const [teamOnly, setTeamOnly] = useState(false);
+  const [nonShinyOnly, setNonShinyOnly] = useState(false);
+    const [teamOnly, setTeamOnly] = useState(false);
   const [sortKey, setSortKey] = useState('dex');
   const [sortDir, setSortDir] = useState('asc');
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
+
+  const toggleRarity = (key) => {
+    setRarityChecks((rc) => ({ ...(rc || {}), [key]: !rc?.[key] }));
+  };
 
   const selected = useMemo(() => {
     if (!selectedUid) return null;
@@ -67,18 +71,24 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
       if (!p) return false;
 
       if (teamOnly && !teamSet.has(p.uid)) return false;
-      if (shinyOnly && !p.shiny) return false;
-      const isDelta = !!(p.isDelta || p.delta || p.buff?.kind === 'delta-typing');
-      if (deltaOnly && !isDelta) return false;
 
-      const rk = String(p.rarity || '').toLowerCase();
-      if (rarityFilter !== 'all') {
-        if (rarityFilter === 'delta') {
-          if (!isDelta) return false;
-        } else if (rk !== rarityFilter) {
-          return false;
-        }
+      // Shiny filters (tri-state)
+      if (shinyOnly && !nonShinyOnly) {
+        if (!p.shiny) return false;
+      } else if (nonShinyOnly && !shinyOnly) {
+        if (p.shiny) return false;
       }
+
+      const isDelta = !!(p.isDelta || p.delta || p.buff?.kind === 'delta-typing');
+
+      // Rarity (OR across checked rarities; if none checked -> all)
+      const rk = String(p.rarity || '').toLowerCase();
+      const baseRarityKeys = ['common', 'uncommon', 'rare', 'legendary'];
+      const anyBaseChecked = baseRarityKeys.some((k) => !!rarityChecks?.[k]);
+      if (anyBaseChecked && !rarityChecks?.[rk]) return false;
+
+      // Delta checkbox requires delta typing
+      if (rarityChecks?.delta && !isDelta) return false;
 
       if (!q) return true;
       const name = String(p.name || '').toLowerCase();
@@ -111,7 +121,7 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
     });
 
     return scored;
-  }, [caughtList, query, rarityFilter, shinyOnly, deltaOnly, teamOnly, sortKey, sortDir, teamSet]);
+  }, [caughtList, query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, teamSet]);
 
   return (
     <>
@@ -123,6 +133,45 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                 <div className="modalTitle">PC Box</div>
                 <div className="modalSub">{caughtList.length} Pokémon caught</div>
               </div>
+
+              <div className="pcBulkActions">
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={() => {
+                    const uids = viewList.map((m) => m?.uid).filter(Boolean);
+                    if (!uids.length) return;
+                    const lockedCount = viewList.filter((m) => m?.locked).length;
+                    const msg = lockedCount
+                      ? `Release ${uids.length} Pokémon? (${lockedCount} locked will be skipped)`
+                      : `Release ${uids.length} Pokémon?`;
+                    if (window.confirm(msg)) {
+                      if (onReleaseMany) onReleaseMany(uids);
+                      else uids.forEach((u) => onRelease && onRelease(u));
+                    }
+                  }}
+                  disabled={!viewList.length}
+                  title="Release all Pokémon currently matched by the filters"
+                >
+                  Release Selected
+                </button>
+
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={() => {
+                    const uids = viewList.map((m) => m?.uid).filter(Boolean);
+                    if (!uids.length) return;
+                    if (onSetLockMany) onSetLockMany(uids, true);
+                    else uids.forEach((u) => onToggleLock && onToggleLock(u));
+                  }}
+                  disabled={!viewList.length}
+                  title="Lock all Pokémon currently matched by the filters"
+                >
+                  Lock Selected
+                </button>
+              </div>
+
               <button className="btnSmall" onClick={onClose}>
                 Close
               </button>
@@ -137,32 +186,48 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                 aria-label="Search PC"
               />
 
-              <select
-                className="pcSelect"
-                value={rarityFilter}
-                onChange={(e) => setRarityFilter(e.target.value)}
-                aria-label="Filter by rarity"
-                title="Filter by rarity"
+              <div
+                className="pcRarityFilters"
+                aria-label="Filter by rarities"
+                title="Filter by rarities (any checked)"
               >
-                <option value="all">All rarities</option>
-                <option value="common">Common</option>
-                <option value="uncommon">Uncommon</option>
-                <option value="rare">Rare</option>
-                <option value="legendary">Legendary</option>
-                <option value="delta">Delta</option>
-              </select>
+                {RARITIES.map((r) => {
+                  const key = String(r.key).toLowerCase();
+                  return (
+                    <label key={key} className="pcToggle pcRarityToggle" title={`Show ${r.label}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!rarityChecks?.[key]}
+                        onChange={() => toggleRarity(key)}
+                      />
+                      <span className="pcRarityToggleIcon">
+                        <RarityBadge badge={r.badge} size={14} />
+                      </span>
+                    </label>
+                  );
+                })}
+                <label className="pcToggle pcRarityToggle" title="Show Delta typing only when checked (requires delta)">
+                  <input
+                    type="checkbox"
+                    checked={!!rarityChecks?.delta}
+                    onChange={() => toggleRarity('delta')}
+                  />
+                  <span className="pcRarityToggleIcon">
+                    <RarityBadge badge={DELTA_BADGE} size={14} />
+                  </span>
+                </label>
+              </div>
 
-              <label className="pcToggle" title="Show Shiny only">
+              <label className="pcToggle" title="Filter Shiny">
                 <input type="checkbox" checked={shinyOnly} onChange={(e) => setShinyOnly(e.target.checked)} />
                 Shiny
               </label>
 
-              <label className="pcToggle" title="Show Delta only">
-                <input type="checkbox" checked={deltaOnly} onChange={(e) => setDeltaOnly(e.target.checked)} />
-                Delta
+              <label className="pcToggle" title="Filter Non-shiny">
+                <input type="checkbox" checked={nonShinyOnly} onChange={(e) => setNonShinyOnly(e.target.checked)} />
+                Non-shiny
               </label>
-
-              <label className="pcToggle" title="Show team only">
+<label className="pcToggle" title="Show team only">
                 <input type="checkbox" checked={teamOnly} onChange={(e) => setTeamOnly(e.target.checked)} />
                 Team
               </label>
@@ -260,6 +325,7 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
           moveTokens={moveTokens}
           onReplaceMove={onReplaceMove}
           onRelease={onRelease}
+          onToggleLock={onToggleLock}
         />
       )}
     </>
