@@ -14,8 +14,22 @@ export default function Pokedex({
 }) {
   const [query, setQuery] = React.useState('');
   const [caughtOnly, setCaughtOnly] = React.useState(false);
+  const [uncaughtOnly, setUncaughtOnly] = React.useState(false);  const [rarityChecks, setRarityChecks] = React.useState(() => ({
+    common: false,
+    uncommon: false,
+    rare: false,
+    legendary: false,
+    delta: false,
+    shiny: false,
+  }));
+  const [sortKey, setSortKey] = React.useState('num');
+  const [sortDir, setSortDir] = React.useState('asc');
 
   if (!open) return null;
+
+  const toggleRarity = React.useCallback((key) => {
+    setRarityChecks((rc) => ({ ...rc, [key]: !rc?.[key] }));
+  }, []);
 
   // Map caught mons -> base dexNum (so forms count toward base species)
   const caughtByDexNum = React.useMemo(() => {
@@ -76,13 +90,42 @@ export default function Pokedex({
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    return normalizedDex.filter((d) => {
+    const list = normalizedDex.filter((d) => {
       const dexNum = d.num;
       const entry = pokedex?.[String(dexNum)] || {};
       const caughtArr = caughtByDexNum.get(dexNum) || [];
       const caughtCount = Math.max(entry.caught ?? 0, caughtArr.length);
+      const seenCount = Math.max(entry.seen ?? 0, caughtCount ? 1 : 0);
+      const anyShinyCaught =
+        (entry.shinyCaught ?? 0) > 0 ||
+        caughtArr.some((m) => !!m?.shiny);
+      const caughtRarityKeys = new Set([
+        ...Object.entries((entry.rarityCaught && typeof entry.rarityCaught === 'object') ? entry.rarityCaught : {})
+          .filter(([, v]) => (v ?? 0) > 0)
+          .map(([k]) => String(k).toLowerCase()),
+        ...(caughtArr || []).map(m => String(m?.rarity || '').toLowerCase()).filter(Boolean),
+      ]);
+      const anyDeltaCaught = (entry.deltaCaught ?? 0) > 0 || caughtArr.some((m) => !!(m?.isDelta || m?.delta || m?.buff?.kind === 'delta-typing'));
 
       if (caughtOnly && !caughtCount) return false;
+      if (uncaughtOnly && caughtCount) return false;
+      // rarity filter (checkboxes): if multiple are checked, require ALL selected rarities
+      const selectedRarities = Object.entries(rarityChecks || {})
+        .filter(([, v]) => !!v)
+        .map(([k]) => String(k).toLowerCase());
+
+      if (selectedRarities.length) {
+        for (const key of selectedRarities) {
+          if (key === 'shiny') {
+            if (!anyShinyCaught) return false;
+          } else if (key === 'delta') {
+            if (!anyDeltaCaught) return false;
+          } else {
+            if (!caughtRarityKeys.has(key)) return false;
+          }
+        }
+      }
+
       if (!q) return true;
 
       const n = String(d.name || '').toLowerCase();
@@ -90,7 +133,38 @@ export default function Pokedex({
       const nn = String(dexNum);
       return n.includes(q) || i.includes(q) || nn === q;
     });
-  }, [normalizedDex, pokedex, caughtByDexNum, query, caughtOnly]);
+
+    const dir = sortDir === 'desc' ? -1 : 1;
+    list.sort((a, b) => {
+      const aNum = a.num ?? 99999;
+      const bNum = b.num ?? 99999;
+
+      const aEntry = pokedex?.[String(aNum)] || {};
+      const bEntry = pokedex?.[String(bNum)] || {};
+      const aCaughtArr = caughtByDexNum.get(aNum) || [];
+      const bCaughtArr = caughtByDexNum.get(bNum) || [];
+
+      const aCaught = Math.max(aEntry.caught ?? 0, aCaughtArr.length);
+      const bCaught = Math.max(bEntry.caught ?? 0, bCaughtArr.length);
+      const aSeen = Math.max(aEntry.seen ?? 0, aCaught ? 1 : 0);
+      const bSeen = Math.max(bEntry.seen ?? 0, bCaught ? 1 : 0);
+
+      const aName = String(a.name || a.id || '').toLowerCase();
+      const bName = String(b.name || b.id || '').toLowerCase();
+
+      let cmp = 0;
+      if (sortKey === 'num') cmp = aNum - bNum;
+      else if (sortKey === 'name') cmp = aName.localeCompare(bName);
+      else if (sortKey === 'seen') cmp = aSeen - bSeen;
+      else if (sortKey === 'caught') cmp = aCaught - bCaught;
+      else cmp = aNum - bNum;
+
+      if (cmp === 0) cmp = (aNum - bNum) || aName.localeCompare(bName);
+      return cmp * dir;
+    });
+
+    return list;
+  }, [normalizedDex, pokedex, caughtByDexNum, query, caughtOnly, uncaughtOnly, rarityChecks, sortKey, sortDir]);
 
   const totals = React.useMemo(() => {
     const total = normalizedDex.length;
@@ -138,10 +212,90 @@ export default function Pokedex({
                 <input
                   type="checkbox"
                   checked={caughtOnly}
-                  onChange={(e) => setCaughtOnly(e.target.checked)}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setCaughtOnly(v);
+                    if (v) setUncaughtOnly(false);
+                  }}
                 />
                 Caught only
               </label>
+
+              <label className="dexToggle" title="Show uncaught only">
+                <input
+                  type="checkbox"
+                  checked={uncaughtOnly}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setUncaughtOnly(v);
+                    if (v) setCaughtOnly(false);
+                  }}
+                />
+                Uncaught only
+              </label>
+              <div
+                className="dexRarityFilters"
+                aria-label="Filter by caught rarities"
+                title="Filter by caught rarities (requires all checked)"
+              >
+                {RARITIES.map((r) => {
+                  const key = String(r.key).toLowerCase();
+                  return (
+                    <label key={key} className="dexToggle dexRarityToggle" title={`Require ${r.label} caught`}>
+                      <input
+                        type="checkbox"
+                        checked={!!rarityChecks?.[key]}
+                        onChange={() => toggleRarity(key)}
+                      />
+                      <span className="dexRarityToggleIcon">
+                        <RarityBadge badge={r.badge} size={14} />
+                      </span>
+                    </label>
+                  );
+                })}
+                <label className="dexToggle dexRarityToggle" title="Require Delta caught">
+                  <input
+                    type="checkbox"
+                    checked={!!rarityChecks?.delta}
+                    onChange={() => toggleRarity('delta')}
+                  />
+                  <span className="dexRarityToggleIcon">
+                    <RarityBadge badge={DELTA_BADGE} size={14} />
+                  </span>
+                </label>
+                <label className="dexToggle dexRarityToggle" title="Require Shiny caught">
+                  <input
+                    type="checkbox"
+                    checked={!!rarityChecks?.shiny}
+                    onChange={() => toggleRarity('shiny')}
+                  />
+                  <span className="dexRarityToggleIcon">✨</span>
+                </label>
+              </div>
+              
+              <div className="dexSortGroup" aria-label="Sort">
+                <select
+                  className="dexSelect"
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value)}
+                  aria-label="Sort field"
+                  title="Sort field"
+                >
+                  <option value="num">Dex #</option>
+                  <option value="name">Name</option>
+                  <option value="seen">Seen</option>
+                  <option value="caught">Caught</option>
+                </select>
+                <button
+                  className="btnSmall dexSortDir"
+                  onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+                  title="Toggle sort direction"
+                  aria-label="Toggle sort direction"
+                  type="button"
+                >
+                  {sortDir === 'asc' ? '↑' : '↓'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -167,7 +321,12 @@ export default function Pokedex({
                 (entry.shinyCaught ?? 0) > 0 ||
                 caughtArr.some((m) => !!m?.shiny);
 
-              const caughtRarityKeys = new Set((caughtArr || []).map(m => String(m?.rarity || '').toLowerCase()).filter(Boolean));
+              const caughtRarityKeys = new Set([
+                ...Object.entries((entry.rarityCaught && typeof entry.rarityCaught === 'object') ? entry.rarityCaught : {})
+                  .filter(([, v]) => (v ?? 0) > 0)
+                  .map(([k]) => String(k).toLowerCase()),
+                ...(caughtArr || []).map(m => String(m?.rarity || '').toLowerCase()).filter(Boolean),
+              ]);
               const anyDeltaCaught = (entry.deltaCaught ?? 0) > 0 || caughtArr.some((m) => !!(m?.isDelta || m?.delta || m?.buff?.kind === 'delta-typing'));
 
               const isCaught = caughtCount > 0;
@@ -205,7 +364,7 @@ export default function Pokedex({
                   {/* Rarity strip: always show one of each rarity symbol (greyed if not caught) */}
                   <div className="dexRarityStrip" aria-label="Rarity caught">
                     {RARITIES.map((r) => {
-                      const active = caughtRarityKeys.has(r.key);
+                      const active = caughtRarityKeys.has(String(r.key).toLowerCase());
                       return (
                         <span
                           key={r.key}

@@ -14,7 +14,7 @@ export const FORME_SUFFIXES = [
 
   // common form groups
   'origin','therian','incarnate',
-  'primal','crowned','complete',
+  'primal','crowned','complete', 'dawnwings', 'duskmane',
 
   // deoxys-like
   'attack','defense','speed',
@@ -32,7 +32,7 @@ export const FORME_SUFFIXES = [
   'white','black',
 
   // max / styles / oricorio
-  'gmax', 'sensu', 'pau', 'pompom', 'fan', 'frost', 'mow', 'heat',
+  'gmax', 'sensu', 'pau', 'pompom',
 
   // ogerpon masks + tera-ish strings you were using
   'hearthflametera', 'cornerstonetera', 'wellspringtera',

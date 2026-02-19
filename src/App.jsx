@@ -124,6 +124,85 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
     [teamMons, activeTeamUid]
   );
 
+  // Encounter UI helper: compute whether the current wild is new (species/rarity/shiny/delta).
+  const wildProgress = useMemo(() => {
+    if (!wild) {
+      return {
+        baseNum: undefined,
+        baseId: undefined,
+        entry: {},
+        rarityKey: undefined,
+        hasSpecies: false,
+        hasRarity: false,
+        hasShiny: false,
+        hasDelta: false,
+      };
+    }
+    // Resolve base species as robustly as possible without touching spawn/form/sprite logic.
+    // Some bundles prefer string dexId (form-ish) even when a numeric dex num exists, so we
+    // try multiple identifiers until we can resolve a numeric baseNum.
+    const idCandidates = [
+      wild.num,
+      wild.dexNum,
+      wild.id,
+      wild.dexId,
+      wild.formId,
+      wild.speciesId,
+      wild.name,
+    ].filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+
+    let baseNum;
+    let baseId;
+    for (const cand of idCandidates) {
+      const info = getBaseDexInfoFromAny(cand);
+      baseNum = info.baseNum;
+      baseId = info.baseId;
+      if (typeof baseNum === 'number') break;
+    }
+
+    // Final fallback: if we only got a baseId, try to resolve its dex number.
+    if (typeof baseNum !== 'number' && baseId) {
+      try {
+        const e = getDexById({ id: baseId });
+        if (e?.num) baseNum = e.num;
+      } catch {}
+    }
+
+    const entry = (typeof baseNum === 'number') ? (save?.pokedex?.[String(baseNum)] || {}) : {};
+    const rarityKey = wild?.rarity;
+
+    const hasSpecies = (entry.caught ?? 0) > 0;
+    const hasRarity = !!(rarityKey && entry?.rarityCaught && entry.rarityCaught[rarityKey]);
+    const hasShiny = !!(entry.shinyCaught ?? 0);
+    const hasDelta = !!(entry.deltaCaught ?? 0);
+
+    return { baseNum, baseId, entry, rarityKey, hasSpecies, hasRarity, hasShiny, hasDelta };
+  }, [wild, save?.pokedex]);
+
+  // Encounter status badge (single badge):
+  // - Gray NEW: never caught this species
+  // - Yellow NEW: species caught, but something about this encounter is new (rarity/delta/shiny)
+  // - Green CAUGHT: already caught this exact combo (rarity + delta/shiny flags)
+  const encounterStatus = useMemo(() => {
+    if (!wild) return null;
+
+    const isNewSpecies = !wildProgress.hasSpecies;
+    const isNewSomething = wildProgress.hasSpecies && (
+      (wildProgress.rarityKey && !wildProgress.hasRarity) ||
+      (wild?.shiny && !wildProgress.hasShiny) ||
+      (wild?.isDelta && !wildProgress.hasDelta)
+    );
+
+    if (isNewSpecies) {
+      return { label: 'NEW', title: 'New species (never caught before)', cls: 'new' };
+    }
+    if (isNewSomething) {
+      return { label: 'NEW', title: 'New variant (rarity/delta/shiny not caught yet)', cls: 'new-variant' };
+    }
+    return { label: 'CAUGHT', title: 'Already caught', cls: 'caught' };
+  }, [wild, wildProgress]);
+
+
   // Per-encounter move usage + catch bonus from attacks
   const [moveUsedByUid, setMoveUsedByUid] = useState(() => ({})); // { [uid]: boolean[4] }
   const [attackBonus, setAttackBonus] = useState(0);
@@ -437,8 +516,8 @@ function grantDailyGiftIfAvailable() {
     const toBaseId = toID(evolvedRecord.formId ?? evolvedRecord.speciesId ?? evolvedRecord.name);
 
 // ✅ Keep the old base forever + add the new base forever (forms map to base species)
-bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta || mon.buff?.kind === 'delta-typing'));
-bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta || evolvedRecord.buff?.kind === 'delta-typing'));
+bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta || mon.buff?.kind === 'delta-typing'), mon?.rarity);
+bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta || evolvedRecord.buff?.kind === 'delta-typing'), evolvedRecord?.rarity ?? mon?.rarity);
 
 
 
@@ -589,7 +668,7 @@ function expandDexIdCandidates(id) {
 
 
 
-  function bumpDexCaughtByNum(dexNum, isShiny, isDelta, baseIdMaybe) {
+  function bumpDexCaughtByNum(dexNum, isShiny, isDelta, rarityKey, baseIdMaybe) {
   if (typeof dexNum !== 'number' && !baseIdMaybe) return;
 
   setSave(prev => {
@@ -599,6 +678,10 @@ function expandDexIdCandidates(id) {
 
     const apply = (key) => {
       const old = dex[key] ?? {};
+      const prevRarity = (old.rarityCaught && typeof old.rarityCaught === 'object') ? old.rarityCaught : {};
+      const nextRarity = { ...prevRarity };
+      const rk = String(rarityKey || '').toLowerCase();
+      if (rk) nextRarity[rk] = Math.max(nextRarity[rk] ?? 0, 1);
       dex[key] = {
         ...(old ?? {}),
         dexNum: old.dexNum ?? dexNum,
@@ -608,6 +691,9 @@ function expandDexIdCandidates(id) {
 
         shinyCaught: isShiny ? Math.max(old.shinyCaught ?? 0, 1) : (old.shinyCaught ?? 0),
         deltaCaught: isDelta ? Math.max(old.deltaCaught ?? 0, 1) : (old.deltaCaught ?? 0),
+
+        // Permanent rarity progress (do NOT derive from PC box)
+        rarityCaught: nextRarity,
 
         // preserve seen flags
         shinySeen: old.shinySeen ?? 0,
@@ -627,9 +713,9 @@ function bumpDexSeenFromAny(anyIdOrNum, isShiny, isDelta) {
   bumpDexSeenByNum(baseNum, isShiny, isDelta, baseId);
 }
 
-function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta) {
+function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey) {
   const { baseId, baseNum } = getBaseDexInfoFromAny(anyIdOrNum);
-  bumpDexCaughtByNum(baseNum, isShiny, isDelta, baseId);
+  bumpDexCaughtByNum(baseNum, isShiny, isDelta, rarityKey, baseId);
 }
 
 
@@ -921,7 +1007,8 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
 bumpDexCaughtFromAny(
   record?.formId ?? record?.speciesId ?? wild.dexId ?? wild.name ?? wild.num ?? wild.id,
   isShiny,
-  !!record?.isDelta
+  !!record?.isDelta,
+  wild?.rarity ?? record?.rarity
 );
 
 
@@ -1230,9 +1317,20 @@ bumpDexCaughtFromAny(
                     <RarityBadge badge={wild.badge} size={22} />
                   </div>
 
+                  {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
                   {wild.shiny ? (
-                    <div className="shinyCorner" title="Shiny!">
-                      ✨ Shiny
+                    <div className="shinyCorner" title="Shiny" aria-label="Shiny">
+                      ✨
+                    </div>
+                  ) : null}
+
+                  {encounterStatus ? (
+                    <div
+                      className={`caughtStatusCorner ${encounterStatus.cls}`}
+                      title={encounterStatus.title}
+                      aria-label={encounterStatus.title}
+                    >
+                      {encounterStatus.label}
                     </div>
                   ) : null}
 

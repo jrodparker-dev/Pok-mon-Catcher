@@ -44,6 +44,13 @@ function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
 
 export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease }) {
   const [selectedUid, setSelectedUid] = useState(null);
+  const [query, setQuery] = useState('');
+  const [rarityFilter, setRarityFilter] = useState('all');
+  const [shinyOnly, setShinyOnly] = useState(false);
+  const [deltaOnly, setDeltaOnly] = useState(false);
+  const [teamOnly, setTeamOnly] = useState(false);
+  const [sortKey, setSortKey] = useState('dex');
+  const [sortDir, setSortDir] = useState('asc');
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
 
@@ -52,28 +59,145 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
     return (caughtList ?? []).find(p => p.uid === selectedUid) || null;
   }, [caughtList, selectedUid]);
 
+  const viewList = useMemo(() => {
+    const list = Array.isArray(caughtList) ? caughtList : [];
+    const q = query.trim().toLowerCase();
+
+    const filtered = list.filter((p) => {
+      if (!p) return false;
+
+      if (teamOnly && !teamSet.has(p.uid)) return false;
+      if (shinyOnly && !p.shiny) return false;
+      const isDelta = !!(p.isDelta || p.delta || p.buff?.kind === 'delta-typing');
+      if (deltaOnly && !isDelta) return false;
+
+      const rk = String(p.rarity || '').toLowerCase();
+      if (rarityFilter !== 'all') {
+        if (rarityFilter === 'delta') {
+          if (!isDelta) return false;
+        } else if (rk !== rarityFilter) {
+          return false;
+        }
+      }
+
+      if (!q) return true;
+      const name = String(p.name || '').toLowerCase();
+      const id = String(p.formId || p.speciesId || '').toLowerCase();
+      const num = String(p.dexId ?? p.id ?? '');
+      return name.includes(q) || id.includes(q) || num === q;
+    });
+
+    const dir = sortDir === 'desc' ? -1 : 1;
+    const scored = filtered.slice().sort((a, b) => {
+      const aNum = (typeof a.dexId === 'number' ? a.dexId : (typeof a.id === 'number' ? a.id : 99999));
+      const bNum = (typeof b.dexId === 'number' ? b.dexId : (typeof b.id === 'number' ? b.id : 99999));
+      const aName = String(a.name || '').toLowerCase();
+      const bName = String(b.name || '').toLowerCase();
+      const aCaught = a.caughtAt ?? 0;
+      const bCaught = b.caughtAt ?? 0;
+      const aR = String(a.rarity || '').toLowerCase();
+      const bR = String(b.rarity || '').toLowerCase();
+      const rarityRank = (rk) => ({ common: 1, uncommon: 2, rare: 3, legendary: 4 }[rk] ?? 9);
+
+      let cmp = 0;
+      if (sortKey === 'dex') cmp = aNum - bNum;
+      else if (sortKey === 'name') cmp = aName.localeCompare(bName);
+      else if (sortKey === 'caught') cmp = aCaught - bCaught;
+      else if (sortKey === 'rarity') cmp = rarityRank(aR) - rarityRank(bR);
+      else cmp = aNum - bNum;
+
+      if (cmp === 0) cmp = (aNum - bNum) || aName.localeCompare(bName);
+      return cmp * dir;
+    });
+
+    return scored;
+  }, [caughtList, query, rarityFilter, shinyOnly, deltaOnly, teamOnly, sortKey, sortDir, teamSet]);
+
   return (
     <>
       <div className="modalOverlay" role="dialog" aria-modal="true">
         <div className="modalCard">
-          <div className="modalHeader">
-            <div>
-              <div className="modalTitle">PC Box</div>
-              <div className="modalSub">{caughtList.length} Pokémon caught</div>
+          <div className="pcStickyHeader">
+            <div className="modalHeader">
+              <div>
+                <div className="modalTitle">PC Box</div>
+                <div className="modalSub">{caughtList.length} Pokémon caught</div>
+              </div>
+              <button className="btnSmall" onClick={onClose}>
+                Close
+              </button>
             </div>
-            <button className="btnSmall" onClick={onClose}>
-              Close
-            </button>
+
+            <div className="pcControls" aria-label="PC sorting and filtering">
+              <input
+                className="pcSearch"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name / id / dex #"
+                aria-label="Search PC"
+              />
+
+              <select
+                className="pcSelect"
+                value={rarityFilter}
+                onChange={(e) => setRarityFilter(e.target.value)}
+                aria-label="Filter by rarity"
+                title="Filter by rarity"
+              >
+                <option value="all">All rarities</option>
+                <option value="common">Common</option>
+                <option value="uncommon">Uncommon</option>
+                <option value="rare">Rare</option>
+                <option value="legendary">Legendary</option>
+                <option value="delta">Delta</option>
+              </select>
+
+              <label className="pcToggle" title="Show Shiny only">
+                <input type="checkbox" checked={shinyOnly} onChange={(e) => setShinyOnly(e.target.checked)} />
+                Shiny
+              </label>
+
+              <label className="pcToggle" title="Show Delta only">
+                <input type="checkbox" checked={deltaOnly} onChange={(e) => setDeltaOnly(e.target.checked)} />
+                Delta
+              </label>
+
+              <label className="pcToggle" title="Show team only">
+                <input type="checkbox" checked={teamOnly} onChange={(e) => setTeamOnly(e.target.checked)} />
+                Team
+              </label>
+
+              <div className="pcSortGroup" aria-label="Sort">
+                <select
+                  className="pcSelect"
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value)}
+                  aria-label="Sort field"
+                  title="Sort field"
+                >
+                  <option value="dex">Dex #</option>
+                  <option value="name">Name</option>
+                  <option value="caught">Caught time</option>
+                  <option value="rarity">Rarity</option>
+                </select>
+                <button
+                  className="btnSmall pcSortDir"
+                  onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+                  title="Toggle sort direction"
+                  aria-label="Toggle sort direction"
+                  type="button"
+                >
+                  {sortDir === 'asc' ? '↑' : '↓'}
+                </button>
+              </div>
+            </div>
           </div>
 
           {caughtList.length === 0 ? (
             <div className="emptyState">No Pokémon yet. Go catch some!</div>
           ) : (
             <div className="grid">
-              {caughtList
-                .slice()
-                .sort((a, b) => (a.dexId ?? a.id) - (b.dexId ?? b.id))
-                .map(p => (
+              {viewList.map(p => (
                   <button
                     key={p.uid ?? p.id}
                     className="gridItem"

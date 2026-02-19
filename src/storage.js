@@ -18,6 +18,9 @@ export function defaultSave() {
   return {
     balls: { poke: 25, great: 15, ultra: 10, master: 1 },
     moveTokens: 0,
+    // Pokédex progress keyed by base National Dex number (as string) and sometimes base id convenience keys.
+    // This must be permanent and not derived from PC contents.
+    pokedex: {},
     caught: [], // array of caught Pokémon variants
     teamUids: [], // up to 3 uid's from caught[]
     activeTeamUid: null,
