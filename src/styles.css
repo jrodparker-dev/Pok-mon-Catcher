@@ -177,6 +177,26 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   color: var(--text);
   cursor:pointer;
 }
+
+/* New ball image assets */
+.ballIconImg{
+  display:block;
+}
+.ballBtn .ballIconImg,
+.ballOverlay .ballIconImg,
+.bigBall .ballIconImg{
+  width:100%;
+  height:100%;
+}
+.ballBtn .ballIconImg{
+  transition: filter .14s ease;
+}
+
+.ballBtn:not(.disabled):hover .ballIconImg,
+.ballBtn:not(.disabled):focus-visible .ballIconImg{
+  filter: drop-shadow(0 0 8px rgba(255,255,255,.85));
+}
+
 .ballBtn.disabled{
   opacity:.45;
   cursor:default;
@@ -1083,6 +1103,31 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 
 .trackerClose{
   display: none;
+}
+
+
+
+.trackerHeader{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trackerReset{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(0,0,0,.25);
+  color: rgba(255,255,255,.9);
+  font-size: 12px;
+}
+.trackerReset:active{
+  transform: translateY(1px);
 }
 
 .trackerRow{

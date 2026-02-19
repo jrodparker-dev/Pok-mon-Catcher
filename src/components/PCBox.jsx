@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PokemonDetail from './PokemonDetail.jsx';
 import RarityBadge from './RarityBadge.jsx';
 import { DELTA_BADGE, RARITIES } from '../rarity.js';
@@ -42,15 +42,47 @@ function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
   );
 }
 
+
+const PCBOX_PREFS_KEY = 'pokemon-catcher.pcbox.prefs.v1';
+
+function loadPCBoxPrefs() {
+  try {
+    const raw = window.localStorage.getItem(PCBOX_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePCBoxPrefs(prefs) {
+  try {
+    window.localStorage.setItem(PCBOX_PREFS_KEY, JSON.stringify(prefs || {}));
+  } catch {}
+}
 export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany }) {
+  const prefs = useMemo(() => loadPCBoxPrefs(), []);
   const [selectedUid, setSelectedUid] = useState(null);
-  const [query, setQuery] = useState('');
-  const [rarityChecks, setRarityChecks] = useState(() => ({ common: false, uncommon: false, rare: false, legendary: false, delta: false }));
-  const [shinyOnly, setShinyOnly] = useState(false);
-  const [nonShinyOnly, setNonShinyOnly] = useState(false);
-    const [teamOnly, setTeamOnly] = useState(false);
-  const [sortKey, setSortKey] = useState('dex');
-  const [sortDir, setSortDir] = useState('asc');
+  const [query, setQuery] = useState(() => String(prefs.query ?? ''));
+  const [rarityChecks, setRarityChecks] = useState(() => (prefs.rarityChecks && typeof prefs.rarityChecks === 'object') ? prefs.rarityChecks : ({ common: false, uncommon: false, rare: false, legendary: false, delta: false }));
+  const [shinyOnly, setShinyOnly] = useState(!!prefs.shinyOnly);
+  const [nonShinyOnly, setNonShinyOnly] = useState(!!prefs.nonShinyOnly);
+  const [teamOnly, setTeamOnly] = useState(!!prefs.teamOnly);
+  const [sortKey, setSortKey] = useState(() => String(prefs.sortKey ?? 'dex'));
+  const [sortDir, setSortDir] = useState(() => (prefs.sortDir === 'desc' ? 'desc' : 'asc'));
+
+  useEffect(() => {
+    savePCBoxPrefs({
+      query,
+      rarityChecks,
+      shinyOnly,
+      nonShinyOnly,
+      teamOnly,
+      sortKey,
+      sortDir,
+    });
+  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir]);
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
 

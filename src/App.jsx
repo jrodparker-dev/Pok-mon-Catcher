@@ -129,6 +129,18 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
     setSave(prev => ({ ...prev, balls: { ...(base.balls ?? {}) } }));
   }
 
+  function resetEncounterTotalsOnly() {
+    const base = defaultSave();
+    setSave(prev => ({ ...prev, encounter: { ...(base.encounter ?? {}) } }));
+  }
+
+  function confirmResetEncounterTotalsOnly() {
+    const ok = window.confirm('Reset encounter totals? This only resets the totals in this tracker and will not affect your Pokédex, PC Box, balls, or settings.');
+    if (!ok) return;
+    resetEncounterTotalsOnly();
+  }
+
+
 
   function resetPCBox() {
     setSave(prev => {
@@ -1797,15 +1809,28 @@ bumpDexCaughtFromAny(
         </button>
 
         <div className="trackerPanel" role="dialog" aria-label="Encounter stats panel">
-          <button
-            className="trackerClose"
-            onClick={() => setTrackerOpen(false)}
-            aria-label="Close encounter tracker"
-            title="Close"
-            type="button"
-          >
-            ✕
-          </button>
+
+          <div className="trackerHeader">
+            <button
+              className="trackerReset"
+              onClick={confirmResetEncounterTotalsOnly}
+              aria-label="Reset encounter totals"
+              title="Reset totals"
+              type="button"
+            >
+              Reset
+            </button>
+
+            <button
+              className="trackerClose"
+              onClick={() => setTrackerOpen(false)}
+              aria-label="Close encounter tracker"
+              title="Close"
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
 
           {RARITIES.map(r => (
             <div className="trackerRow" key={r.key}>
