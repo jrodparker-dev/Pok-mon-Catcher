@@ -28,6 +28,13 @@ export function defaultSave() {
       // Base rate is 1/500; enabling Shiny Charm boosts to the old 2.5%.
       shinyCharm: false,
     },
+
+trainer: {
+  level: 1,
+  totalXp: 0,
+  // achievement flags
+  dexMilestones: {}, // e.g. {50: {unlockedAt: 123}, ...}
+},
     balls: { poke: 25, great: 15, ultra: 10, master: 1 },
     moveTokens: 0,
     // Pokédex progress keyed by base National Dex number (as string) and sometimes base id convenience keys.

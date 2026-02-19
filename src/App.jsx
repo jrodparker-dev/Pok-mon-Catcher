@@ -4,6 +4,7 @@ import { getShowdownSpriteCandidates, cacheSpriteSuccess, SPRITE_CACHE_EVENT } f
 import RarityBadge from './components/RarityBadge.jsx';
 import GrassPatches from './components/GrassPatches.jsx';
 import Pokedex from './components/Pokedex.jsx';
+import TrainerProfile from './components/TrainerProfile.jsx';
 import { BALLS, calcCatchChance } from './balls.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
 import { defaultSave, loadSave, saveSave } from './storage.js';
@@ -25,6 +26,7 @@ import { pickWeightedRarity, makeBuff, rollDelta, RARITIES, DELTA_BADGE } from '
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
+import { applyCatchProgress } from './trainer.js';
 
 function capName(name) {
   if (!name) return '';
@@ -59,6 +61,7 @@ export default function App() {
       ...loaded,
       balls: { ...base.balls, ...(loaded.balls ?? {}) },
       encounter: { ...base.encounter, ...(loaded.encounter ?? {}) },
+      trainer: { ...base.trainer, ...(loaded.trainer ?? {}) },
       settings: { ...(base.settings ?? {}), ...(loaded.settings ?? {}) },
       // ensure pokedex bucket exists
       pokedex: { ...(base.pokedex ?? {}), ...(loaded.pokedex ?? {}) },
@@ -96,6 +99,7 @@ export default function App() {
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const devCheat = useRef({bagTaps: 0, armed: false, lastTap: 0});
 
 
@@ -114,6 +118,7 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
 
   const encounter = save.encounter ?? defaultSave().encounter;
   const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
+  const trainer = { ...(defaultSave().trainer ?? {}), ...(save.trainer ?? {}) };
 
   function updateSetting(key, value) {
     setSave(prev => {
@@ -821,6 +826,16 @@ function expandDexIdCandidates(id) {
     const cur = { ...base, ...prev };
     const dex = { ...(cur.pokedex ?? {}) };
 
+    const dexCaughtBefore = (function(){
+      let c = 0;
+      const dexObj = cur.pokedex ?? {};
+      for (const [k,v] of Object.entries(dexObj)) {
+        if (!/^\\d+$/.test(k)) continue;
+        if ((v?.caught ?? 0) > 0) c++;
+      }
+      return c;
+    })();
+
     const apply = (key) => {
       const old = dex[key] ?? {};
       const prevRarity = (old.rarityCaught && typeof old.rarityCaught === 'object') ? old.rarityCaught : {};
@@ -853,7 +868,24 @@ function expandDexIdCandidates(id) {
     if (typeof dexNum === 'number') apply(String(dexNum));
     if (baseIdMaybe) apply(toID(baseIdMaybe));
 
-    return { ...cur, pokedex: dex };
+const dexCaughtAfter = (function(){
+  let c = 0;
+  for (const [k,v] of Object.entries(dex)) {
+    if (!/^\d+$/.test(k)) continue;
+    if ((v?.caught ?? 0) > 0) c++;
+  }
+  return c;
+})();
+
+const { nextTrainer } = applyCatchProgress(cur.trainer ?? base.trainer, {
+  rarityKey,
+  isShiny,
+  isDelta,
+  dexCaughtBefore,
+  dexCaughtAfter,
+});
+
+return { ...cur, pokedex: dex, trainer: nextTrainer };
   });
 }
 
@@ -1356,6 +1388,18 @@ bumpDexCaughtFromAny(
             ⚙️
           </button>
 
+
+<button
+  className="btnSmall"
+  onClick={() => setShowProfile(true)}
+  aria-label="Open Trainer Profile"
+  title="Trainer Profile"
+  type="button"
+>
+  👤
+</button>
+
+
           <button
             className="pcButton"
             onClick={exportPCToFile}
@@ -1732,8 +1776,10 @@ bumpDexCaughtFromAny(
       )}
 
       {/* ✅ NEW: Pokédex modal */}
+      <TrainerProfile open={showProfile} onClose={() => setShowProfile(false)} save={save} />
+
       {showDex && (
-  <Pokedex
+      <Pokedex
     open={showDex}
     onClose={() => setShowDex(false)}
     dexList={fullDexList}
