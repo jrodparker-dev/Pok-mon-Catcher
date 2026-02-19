@@ -35,7 +35,7 @@ export const FORME_SUFFIXES = [
   'school','solo','busted', 'trash',
 
   // kyurem / others
-  'white','black',
+  'white','black', 'midnight', 'noice',
 
   // max / styles / oricorio
   'gmax', 'sensu', 'pau', 'pompom',
