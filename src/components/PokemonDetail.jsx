@@ -4,7 +4,7 @@ import { getEvolutionOptions } from '../evolution.js';
 import { getDexById } from '../dexLocal.js';
 import { rollRandomMoveIds, getMoveDisplay } from '../randomMoveTokens.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
-import { RARITIES, DELTA_BADGE } from '../rarity.js';
+import { RARITIES, DELTA_BADGE, describeBuff } from '../rarity.js';
 
 const STAT_ORDER = [
   ['hp', 'HP'],
@@ -113,7 +113,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
   if (!mon) return null;
 
   const baseRarityBadge = (RARITIES.find(r => r.key === mon.rarity)?.badge ?? null);
-  const isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
+  const isDelta = !!(mon.isDelta);
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
@@ -128,7 +128,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
               <span>#{mon.dexId ?? mon.id} {cap(mon.name)}{mon.shiny ? ' ✨' : ''}</span>
             </div>
             <div className="modalSub">
-              {cap(mon.rarity)} • {mon.buff?.kind ?? 'none'}{mon.shiny ? ' • ✨ Shiny' : ''}
+              {cap(mon.rarity)} • {(Array.isArray(mon.buffs) ? mon.buffs.map(describeBuff).filter(Boolean).join(' • ') : (mon.buff ? describeBuff(mon.buff) : 'none'))}{mon.shiny ? ' • ✨ Shiny' : ''}
             </div>
           </div>
           <button className="btnSmall" onClick={onClose}>

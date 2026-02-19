@@ -27,7 +27,7 @@ export default function TrainerProfile({ open, onClose, save }) {
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
-      <div className="modal profileModal">
+      <div className="modalCard profileModal">
         <div className="modalHeader">
           <div>
             <div className="modalTitle">Trainer Profile</div>

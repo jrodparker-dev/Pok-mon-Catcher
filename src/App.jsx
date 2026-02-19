@@ -22,7 +22,7 @@ const MAX_SHINY_CHANCE = 0.10; // safety cap (10%)
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
 
-import { pickWeightedRarity, makeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
+import { pickWeightedRarity, rollBuffs, describeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
@@ -79,7 +79,7 @@ export default function App() {
           dexId: typeof dexNum === 'number' ? dexNum : m.dexId,
           formId: formId,
           speciesId: m.speciesId ?? formId,
-          isDelta: !!(m.isDelta || m.delta || m.buff?.kind === 'delta-typing'),
+          isDelta: !!(m.isDelta || m.delta),
         };
       }),
     };
@@ -169,6 +169,62 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
     });
   }
 
+
+  // --- Buff helpers (active/team bonuses) ---
+  function getBuffTotalsFromMons(mons, activeUid) {
+    let catchPct = 0;
+    let shinyPct = 0;
+    let rarityPct = 0;
+    let koBallPct = 0;
+
+    for (const m of mons || []) {
+      const bs = Array.isArray(m?.buffs) ? m.buffs : (m?.buff ? [m.buff] : []);
+      for (const b of bs) {
+        if (!b || !b.kind) continue;
+
+        // team buffs apply if mon is on team
+        if (b.kind === 'catch-team') catchPct += (b.pct ?? 0);
+        if (b.kind === 'shiny-team') shinyPct += (b.pct ?? 0);
+        if (b.kind === 'rarity-team') rarityPct += (b.pct ?? 0);
+
+        // active-only buffs apply only for the active mon
+        if (m?.uid === activeUid) {
+          if (b.kind === 'catch-active') catchPct += (b.pct ?? 0);
+          if (b.kind === 'shiny-active') shinyPct += (b.pct ?? 0);
+          if (b.kind === 'rarity-active') rarityPct += (b.pct ?? 0);
+          if (b.kind === 'ko-ball-active') koBallPct += (b.pct ?? 0);
+        }
+      }
+    }
+    return { catchPct, shinyPct, rarityPct, koBallPct };
+  }
+
+  function applyRarityBoost(rarityObj, rarityBoostPct, rng = Math.random) {
+    const order = ['common', 'uncommon', 'rare', 'legendary'];
+    let key = rarityObj?.key ?? 'common';
+    let i = order.indexOf(key);
+    if (i < 0) i = 0;
+
+    // Allow a small chance to "upgrade" the rolled rarity.
+    // Multiple steps are possible but diminishing (prevents jumping too far too often).
+    let p = Math.max(0, rarityBoostPct) / 100;
+    while (p > 0 && i < order.length - 1) {
+      if (rng() < p) {
+        i++;
+        p *= 0.5;
+      } else {
+        break;
+      }
+    }
+    const newKey = order[i];
+    return RARITIES.find(r => r.key === newKey) ?? rarityObj;
+  }
+
+  function formatBuffsShort(buffs) {
+    const arr = Array.isArray(buffs) ? buffs : [];
+    const parts = arr.map(describeBuff).filter(Boolean);
+    return parts.length ? parts.join(' • ') : 'none';
+  }
   // Team (up to 3) and battle-assist state (per encounter)
   const teamUids = Array.isArray(save.teamUids) ? save.teamUids.slice(0, 3) : [];
   const activeTeamUid = save.activeTeamUid ?? (teamUids[0] ?? null);
@@ -522,7 +578,9 @@ function grantDailyGiftIfAvailable() {
 
   function currentEffectiveCaptureRate() {
     if (!wild) return 0;
-    const pityRate = pityAdjustedCaptureRate(wild.captureRate, pityFails);
+    const pityRate0 = pityAdjustedCaptureRate(wild.captureRate, pityFails);
+    const totals = getBuffTotalsFromMons(teamMons, activeTeamUid);
+    const pityRate = Math.min(255, pityRate0 * (1 + (totals.catchPct / 100)));
     const total = Math.min(255, Math.round(pityRate + attackBonus));
     return { pityRate, total };
   }
@@ -562,6 +620,13 @@ function grantDailyGiftIfAvailable() {
       if (settings.ballOnDefeat) {
         const ballKey = awardRandomBall();
         rewardText = ` You found a ${capName(ballKey)} ball!`;
+      }
+
+      // Extra KO-ball chance from active/team buffs (independent of the guaranteed defeat reward setting)
+      const totals = getBuffTotalsFromMons(teamMons, activeTeamUid);
+      if (totals.koBallPct > 0 && Math.random() < (totals.koBallPct / 100)) {
+        const ballKey2 = awardRandomBall();
+        rewardText += rewardText ? ` Also found a ${capName(ballKey2)} ball!` : ` You found a ${capName(ballKey2)} ball!`;
       }
       setMessage(`Oh no! ${capName(wild.name)} was KO'd.${rewardText}`);
       advanceActiveTeam();
@@ -642,8 +707,8 @@ function grantDailyGiftIfAvailable() {
       ...evolvedBundle,
       rarity: mon.rarity,
       badge: mon.badge,
-      buff: mon.buff,
-      isDelta: !!(mon.isDelta || mon.buff?.kind === 'delta-typing'),
+      buffs: mon.buffs ?? (mon.buff ? [mon.buff] : []),
+      isDelta: !!(mon.isDelta),
       types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
     };
 
@@ -654,16 +719,16 @@ function grantDailyGiftIfAvailable() {
     evolvedRecord.locked = !!mon.locked;
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
-    evolvedRecord.isDelta = !!(mon.isDelta || mon.buff?.kind === 'delta-typing');
+    evolvedRecord.isDelta = !!(mon.isDelta);
 
-    if (mon.isDelta || mon.buff?.kind === 'delta-typing') {
+    if (mon.isDelta) {
       evolvedRecord.types = mon.types;
     }
     const toBaseId = toID(evolvedRecord.formId ?? evolvedRecord.speciesId ?? evolvedRecord.name);
 
 // ✅ Keep the old base forever + add the new base forever (forms map to base species)
-bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta || mon.buff?.kind === 'delta-typing'), mon?.rarity);
-bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta || evolvedRecord.buff?.kind === 'delta-typing'), evolvedRecord?.rarity ?? mon?.rarity);
+bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta ), mon?.rarity);
+bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta ), evolvedRecord?.rarity ?? mon?.rarity);
 
 
 
@@ -940,10 +1005,13 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey) {
     const dexId = getRandomSpawnableDexId();
     const bundle = await fetchPokemonBundleByDexId(dexId);
 
-    const rarity = pickWeightedRarity();
-    const buff = makeBuff(rarity.key, bundle);
+    const baseRarity = pickWeightedRarity();
+    const totals = getBuffTotalsFromMons(teamMons, activeTeamUid);
+    const rarity = applyRarityBoost(baseRarity, totals.rarityPct);
+    const buffs = rollBuffs(rarity.key, bundle);
     const baseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
-    const shinyChance = Math.min(MAX_SHINY_CHANCE, baseShiny + SHINY_STREAK_BONUS * catchStreak);
+    const totals2 = getBuffTotalsFromMons(teamMons, activeTeamUid);
+    const shinyChance = Math.min(MAX_SHINY_CHANCE, baseShiny + (totals2.shinyPct / 100) + SHINY_STREAK_BONUS * catchStreak);
     const isShiny = Math.random() < shinyChance;
 
     const isDelta = rollDelta(rarity.key);
@@ -964,7 +1032,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
       ...bundle,
       rarity: rarity.key,
       badge: rarity.badge,
-      buff,
+      buffs,
       shiny: isShiny,
       types: rolledTypesForWild,
       isDelta,
@@ -1061,17 +1129,35 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     setGrassSlots([]);
   }
 
-  function applyStatBuff(baseStats, buff) {
+  function applyStatBuffs(baseStats, buffs) {
     const s = { ...baseStats };
-    if (!buff || buff.kind === 'none') return s;
+    const arr = Array.isArray(buffs) ? buffs : (buffs ? [buffs] : []);
+    for (const b of arr) {
+      if (!b || !b.kind) continue;
 
-    if (buff.kind === 'stat+10' || buff.kind === 'stat+20' || buff.kind === 'stat+30') {
-      s[buff.stat] = (s[buff.stat] ?? 0) + buff.amount;
-    }
-    if (buff.kind === 'stat+15x2') {
-      const [a, b] = buff.stats;
-      s[a] = (s[a] ?? 0) + buff.amount;
-      s[b] = (s[b] ?? 0) + buff.amount;
+      // legacy kinds
+      if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
+        s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
+        continue;
+      }
+      if (b.kind === 'stat+15x2') {
+        const [a, c] = b.stats;
+        s[a] = (s[a] ?? 0) + (b.amount ?? 0);
+        s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+        continue;
+      }
+
+      // new kinds
+      if (b.kind === 'stat') {
+        s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
+        continue;
+      }
+      if (b.kind === 'stat2') {
+        const [a, c] = b.stats ?? [];
+        if (a) s[a] = (s[a] ?? 0) + (b.amount ?? 0);
+        if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+        continue;
+      }
     }
     return s;
   }
@@ -1081,7 +1167,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     let moves = pickUnique(learnset, 4).map(m => ({ kind: 'learnset', name: m }));
 
     let ability;
-    if (w.buff?.kind === 'chosen-ability') {
+    if (((w.buffs ?? []).some(b => b?.kind === 'chosen-ability')) || (w.buff?.kind === 'chosen-ability')) {
       const native = w.nativeAbilities ?? [];
       const picked = native.length
         ? native[Math.floor(Math.random() * native.length)].name
@@ -1092,7 +1178,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
       ability = rollAbility(all);
     }
 
-    if (w.buff?.kind === 'custom-move') {
+    if (((w.buffs ?? []).some(b => b?.kind === 'custom-move')) || (w.buff?.kind === 'custom-move')) {
       const others = pickUnique(learnset, 3).map(m => ({ kind: 'learnset', name: m }));
       moves = [{ kind: 'custom', name: 'Custom Move' }, ...others];
     }
@@ -1101,7 +1187,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     const types = w?.isDelta ? rollDeltaTypes(baseTypes) : baseTypes;
 
     const baseStats = w.baseStats ?? {};
-    const finalStats = applyStatBuff(baseStats, w.buff);
+    const finalStats = applyStatBuffs(baseStats, w.buffs ?? w.buff);
 
     let shinyBoostStat = null;
     if (isShiny) {
@@ -1129,7 +1215,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
 
       rarity: w.rarity,
       badge: w.badge,
-      buff: w.buff,
+      buffs: w.buffs ?? (w.buff ? [w.buff] : []),
 
       spriteUrl: spriteUrlResolved,
       shiny: !!isShiny,
@@ -1247,24 +1333,10 @@ bumpDexCaughtFromAny(
       const r = String(mon.rarity);
       if (r && r !== 'common') parts.push(r.charAt(0).toUpperCase() + r.slice(1));
     }
-    if (mon?.buff && mon.buff.kind && mon.buff.kind !== 'none') {
-      const b = mon.buff;
-      if (b.kind?.startsWith('stat+')) {
-        if (b.stat && b.amount) parts.push(`+${b.amount} ${String(b.stat).toUpperCase()}`);
-        else parts.push(b.kind);
-      } else if (b.kind === 'stat+15x2') {
-        parts.push(`+${b.amount} ${String(b.stats?.[0] || '').toUpperCase()} & +${b.amount} ${String(b.stats?.[1] || '').toUpperCase()}`);
-      } else if (b.kind === 'illegal-move') {
-        parts.push('Illegal Move');
-      } else if (b.kind === 'custom-move') {
-        parts.push('Custom Move');
-      } else if (b.kind === 'delta-typing') {
-        parts.push('Delta Typing');
-      } else if (b.kind === 'chosen-ability') {
-        parts.push('Pick Ability');
-      } else {
-        parts.push(b.kind);
-      }
+    const buffArr = Array.isArray(mon?.buffs) ? mon.buffs : (mon?.buff ? [mon.buff] : []);
+    for (const b of buffArr) {
+      const d = describeBuff(b);
+      if (d) parts.push(d);
     }
     if (mon?.shiny) parts.push('Shiny');
     if (mon?.isDelta) parts.push('Delta Typing');
@@ -1372,12 +1444,31 @@ bumpDexCaughtFromAny(
   }
   // ======================
 
+  // HUD: show current shiny chance after buffs + streak so it's easy to verify
+  const hudTotals = getBuffTotalsFromMons(teamMons, activeTeamUid);
+  const hudBaseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
+  const hudShinyChance = Math.min(
+    MAX_SHINY_CHANCE,
+    hudBaseShiny + (hudTotals.shinyPct / 100) + SHINY_STREAK_BONUS * catchStreak
+  );
+  const hudShinyPct = hudShinyChance * 100;
+  const hudOneIn = hudShinyChance > 0 ? Math.round(1 / hudShinyChance) : 0;
+
   return (
     <div className="app">
       <header className="topBar">
         <div className="brand">Pokémon Catcher</div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
+          <div
+            className="shinyChancePill"
+            title={`Current shiny chance: ${hudShinyPct.toFixed(2)}% (≈ 1 in ${hudOneIn})\nIncludes active/team buffs and catch streak.`}
+            aria-label={`Current shiny chance ${hudShinyPct.toFixed(2)} percent`}
+          >
+            <span className="sparkle">✨</span>
+            <span>{hudShinyPct.toFixed(2)}%</span>
+          </div>
+
           <button
             className="btnSmall"
             onClick={() => setShowSettings(true)}
@@ -1610,7 +1701,7 @@ bumpDexCaughtFromAny(
                         ) : null}
                         {wild.rarity ? (
                           <div style={{ marginTop: 6 }}>
-                            Rarity: <b>{capName(wild.rarity)}</b> • Buff: <b>{wild.buff?.kind ?? 'none'}</b>
+                            Rarity: <b>{capName(wild.rarity)}</b> • Buffs: <b>{formatBuffsShort(wild.buffs)}</b>
                           </div>
                         ) : null}
                       </>

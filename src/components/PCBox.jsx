@@ -111,7 +111,7 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
         if (p.shiny) return false;
       }
 
-      const isDelta = !!(p.isDelta || p.delta || p.buff?.kind === 'delta-typing');
+      const isDelta = !!(p.isDelta || p.delta);
 
       // Rarity (OR across checked rarities; if none checked -> all)
       const rk = String(p.rarity || '').toLowerCase();
@@ -307,7 +307,7 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                     {p.badge && (
                       <div className="gridBadgeCorner">
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          {(p.isDelta || p.buff?.kind === 'delta-typing') ? (
+                          {(p.isDelta) ? (
                             <RarityBadge badge={DELTA_BADGE} size={18} />
                           ) : null}
                           <RarityBadge badge={p.badge} size={18} />
