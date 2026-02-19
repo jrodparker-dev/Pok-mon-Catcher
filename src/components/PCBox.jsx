@@ -177,7 +177,9 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
               </button>
             </div>
 
-            <div className="pcControls" aria-label="PC sorting and filtering">
+          </div>
+
+          <div className="pcControls" aria-label="PC sorting and filtering">
               <input
                 className="pcSearch"
                 value={query}
@@ -256,7 +258,6 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                 </button>
               </div>
             </div>
-          </div>
 
           {caughtList.length === 0 ? (
             <div className="emptyState">No Pokémon yet. Go catch some!</div>
