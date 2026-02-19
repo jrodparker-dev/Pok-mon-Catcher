@@ -14,7 +14,13 @@ export const FORME_SUFFIXES = [
 
   // common form groups
   'origin','therian','incarnate',
-  'primal','crowned','complete', 'dawnwings', 'duskmane',
+  'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
+
+  // rotom
+  'fan', 'mow', 'heat', 'wash', 'frost',
+
+  //pumkaboo/gourgeist
+  'small', 'large', 'super', 'average',
 
   // deoxys-like
   'attack','defense','speed',
@@ -42,7 +48,7 @@ export const FORME_SUFFIXES = [
   'douse', 'shock',
 
   // poltchageist/sinistcha
-  'artisan', 'masterpiece',
+  'artisan', 'masterpiece', 'antique',
 
   // megas + special
   'mega','megax','megay', 'eternamax', 'stellar',
