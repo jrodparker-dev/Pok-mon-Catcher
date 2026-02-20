@@ -219,6 +219,11 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
           if (b.kind === 'shiny-active') shinyPct += (b.pct ?? 0);
           if (b.kind === 'rarity-active') rarityPct += (b.pct ?? 0);
           if (b.kind === 'ko-ball-active') koBallPct += (b.pct ?? 0);
+          if (b.kind === 'boost-all-active') {
+            catchPct += (b.catchPct ?? 0);
+            shinyPct += (b.shinyPct ?? 0);
+            rarityPct += (b.rarityPct ?? 0);
+          }
         }
       }
     }
@@ -1508,11 +1513,109 @@ function viewSavedRun(summary) {
     setGrassSlots([]);
   }
 
-  function applyStatBuffs(baseStats, buffs) {
-    const s = { ...baseStats };
+  function applyStatBuffs(baseStats, buffs, rng = Math.random) {
+    // Stats are stored as {hp, atk, def, spa, spd, spe}
+    const STAT_KEYS_LOCAL = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+
     const arr = Array.isArray(buffs) ? buffs : (buffs ? [buffs] : []);
+
+    function clampStat(v) {
+      v = Math.trunc(Number(v) || 0);
+      if (v < 1) return 1;
+      if (v > 255) return 255;
+      return v;
+    }
+
+    function calcBST(s) {
+      let t = 0;
+      for (const k of STAT_KEYS_LOCAL) t += (s?.[k] ?? 0);
+      return t;
+    }
+
+    function genUnhingedBalancedStats(minBST = 500, maxBST = 650) {
+      // Spiky (unhinged) split with guardrails + compensation:
+      // - 1..255 per stat
+      // - BST target in [minBST..maxBST]
+      // - if any stat is very low (<=25), force at least one very high (>=180)
+      // - avoid all-stats-high or all-stats-low outcomes
+      for (let tries = 0; tries < 1000; tries++) {
+        const target = Math.floor(minBST + rng() * (maxBST - minBST + 1));
+
+        // spiky weights
+        const exp = 3.0;
+        const w = STAT_KEYS_LOCAL.map(() => Math.pow(rng(), exp));
+        let sumW = w.reduce((a, b) => a + b, 0) || 1;
+        const raw = w.map(x => x / sumW * target);
+
+        // round + ensure >= 1
+        let s = {};
+        let total = 0;
+        for (let i = 0; i < STAT_KEYS_LOCAL.length; i++) {
+          const k = STAT_KEYS_LOCAL[i];
+          const v = Math.max(1, Math.round(raw[i]));
+          s[k] = v;
+          total += v;
+        }
+
+        // fix sum to target
+        const keys = STAT_KEYS_LOCAL.slice();
+        while (total !== target) {
+          if (total < target) {
+            const k = keys[Math.floor(rng() * keys.length)];
+            if (s[k] < 255) { s[k]++; total++; }
+            else { /* try another */ }
+          } else {
+            const k = keys[Math.floor(rng() * keys.length)];
+            if (s[k] > 1) { s[k]--; total--; }
+            else { /* try another */ }
+          }
+          // escape infinite loops if everything is capped
+          if (total < target && keys.every(k => s[k] >= 255)) break;
+          if (total > target && keys.every(k => s[k] <= 1)) break;
+        }
+
+        // clamp
+        for (const k of STAT_KEYS_LOCAL) s[k] = clampStat(s[k]);
+        total = calcBST(s);
+
+        // if clamp moved us off target, it's still ok as long as within range
+        if (total < minBST || total > maxBST) continue;
+
+        const vals = STAT_KEYS_LOCAL.map(k => s[k]);
+        const minV = Math.min(...vals);
+        const maxV = Math.max(...vals);
+
+        // compensation rule
+        if (minV <= 25 && maxV < 180) continue;
+
+        // guardrails: avoid "all high" and "all low"
+        const allHigh = vals.every(v => v >= 130);
+        const allLow = vals.every(v => v <= 90);
+        if (allHigh || allLow) continue;
+
+        return s;
+      }
+
+      // fallback: just clamp baseStats
+      const fallback = {};
+      for (const k of STAT_KEYS_LOCAL) fallback[k] = clampStat(baseStats?.[k] ?? 50);
+      return fallback;
+    }
+
+    // Start with base stats, but allow a reroll buff to replace them.
+    let s = { ...baseStats };
+
+    const hasReroll = arr.some(b => b?.kind === 'reroll-stats');
+    if (hasReroll) {
+      // If multiple rerolls exist, just use the last one's range.
+      const last = [...arr].reverse().find(b => b?.kind === 'reroll-stats') || {};
+      s = genUnhingedBalancedStats(last.minBST ?? 500, last.maxBST ?? 650);
+    }
+
+    // Apply additive stat buffs (order doesn't matter; they stack)
     for (const b of arr) {
       if (!b || !b.kind) continue;
+      if (b.kind === 'reroll-stats' || b.kind === 'bst-to-600') continue;
 
       // legacy kinds
       if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
@@ -1520,13 +1623,13 @@ function viewSavedRun(summary) {
         continue;
       }
       if (b.kind === 'stat+15x2') {
-        const [a, c] = b.stats;
-        s[a] = (s[a] ?? 0) + (b.amount ?? 0);
-        s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+        const [a, c] = b.stats || [];
+        if (a) s[a] = (s[a] ?? 0) + (b.amount ?? 0);
+        if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
         continue;
       }
 
-      // new kinds
+      // current kinds
       if (b.kind === 'stat') {
         s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
         continue;
@@ -1537,7 +1640,49 @@ function viewSavedRun(summary) {
         if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
         continue;
       }
+      if (b.kind === 'stat-all') {
+        for (const k of STAT_KEYS_LOCAL) s[k] = (s[k] ?? 0) + (b.amount ?? 0);
+        continue;
+      }
     }
+
+    // Clamp after additive buffs
+    for (const k of STAT_KEYS_LOCAL) s[k] = clampStat(s[k]);
+
+    // Apply "BST to 600" last (it modifies all stats evenly)
+    const hasBST600 = arr.some(b => b?.kind === 'bst-to-600');
+    if (hasBST600) {
+      const target = 600;
+      let bst = calcBST(s);
+      let diff = target - bst;
+
+      if (diff > 0) {
+        // Add evenly first
+        let baseAdd = Math.floor(diff / 6);
+        if (baseAdd > 0) {
+          for (const k of STAT_KEYS_LOCAL) {
+            const add = Math.min(baseAdd, 255 - s[k]);
+            s[k] += add;
+            diff -= add;
+          }
+        }
+
+        // Distribute remainder randomly
+        let safety = 0;
+        while (diff > 0 && safety++ < 2000) {
+          const k = STAT_KEYS_LOCAL[Math.floor(rng() * STAT_KEYS_LOCAL.length)];
+          if (s[k] < 255) {
+            s[k] += 1;
+            diff -= 1;
+          }
+          if (STAT_KEYS_LOCAL.every(k2 => s[k2] >= 255)) break;
+        }
+      }
+    }
+
+    // Final clamp
+    for (const k of STAT_KEYS_LOCAL) s[k] = clampStat(s[k]);
+
     return s;
   }
 

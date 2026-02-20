@@ -54,6 +54,10 @@ export function describeBuff(buff) {
   if (buff.kind === 'ko-ball-active') return `${buff.pct}% ball on KO (active)`;
   if (buff.kind === 'custom-move') return `Custom Move`;
   if (buff.kind === 'chosen-ability') return `Chosen Ability`;
+  if (buff.kind === 'stat-all') return `+${buff.amount} all stats`;
+  if (buff.kind === 'bst-to-600') return `BST → 600`;
+  if (buff.kind === 'reroll-stats') return `Reroll stats (BST 500–650)`;
+  if (buff.kind === 'boost-all-active') return `+${buff.shinyPct}% shiny +${buff.catchPct}% catch +${buff.rarityPct}% rarity (active)`;
   return buff.kind;
 }
 
@@ -123,14 +127,14 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     pool.push(
       { kind: 'catch-active', pct: randInt(1, 5, rng) },
       { kind: 'shiny-active', pct: 1 },
-      { kind: 'rarity-active', pct: 1 },
+      { kind: 'rarity-active', pct: 4 },
       { kind: 'ko-ball-active', pct: randInt(1, 5, rng) },
     );
   } else if (rarityKey === 'uncommon') {
     pool.push(
       { kind: 'catch-active', pct: randInt(5, 10, rng) },
       { kind: 'shiny-active', pct: 2 },
-      { kind: 'rarity-active', pct: 2 },
+      { kind: 'rarity-active', pct: 6 },
       { kind: 'ko-ball-active', pct: randInt(5, 10, rng) },
     );
   } else if (rarityKey === 'rare') {
@@ -139,8 +143,8 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
       { kind: 'catch-team', pct: 5 },
       { kind: 'shiny-active', pct: 3 },
       { kind: 'shiny-team', pct: 1 },
-      { kind: 'rarity-active', pct: 3 },
-      { kind: 'rarity-team', pct: 1 },
+      { kind: 'rarity-active', pct: 8 },
+      { kind: 'rarity-team', pct: 3 },
       { kind: 'ko-ball-active', pct: randInt(15, 20, rng) },
     );
   } else if (rarityKey === 'legendary') {
@@ -149,8 +153,8 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
       { kind: 'catch-team', pct: 10 },
       { kind: 'shiny-active', pct: 5 },
       { kind: 'shiny-team', pct: 2 },
-      { kind: 'rarity-active', pct: 5 },
-      { kind: 'rarity-team', pct: 2 },
+      { kind: 'rarity-active', pct: 10 },
+      { kind: 'rarity-team', pct: 5 },
       { kind: 'ko-ball-active', pct: randInt(20, 30, rng) },
       // keep these where they were (legendary-only)
       { kind: 'custom-move', name: 'Custom Move' },
@@ -173,6 +177,19 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     const picked = JSON.parse(JSON.stringify(chosen));
     buffs.push(picked);
     usedKinds.add(picked.kind);
+  }
+
+  // 4) Super-rare bonus buff (1% chance) - can exceed normal buff limits
+  if (rng() < 0.01) {
+    const superPool = [
+      { kind: 'stat-all', amount: 15 },
+      { kind: 'bst-to-600' },
+      { kind: 'stat', stat: pickOne(STAT_KEYS, rng), amount: randInt(10, 50, rng) },
+      { kind: 'reroll-stats', minBST: 500, maxBST: 650 },
+      { kind: 'boost-all-active', shinyPct: 5, catchPct: 25, rarityPct: 15 },
+    ];
+    const chosen = superPool[Math.floor(rng() * superPool.length)];
+    buffs.push(JSON.parse(JSON.stringify(chosen)));
   }
 
   return buffs;
