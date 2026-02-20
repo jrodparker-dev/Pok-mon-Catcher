@@ -1,8 +1,8 @@
 export const RARITIES = [
-  { key: 'common', label: 'Common', weight: 70, badge: { shape: 'circle', color: '#9ca3af' } },
+  { key: 'common', label: 'Common', weight: 67, badge: { shape: 'circle', color: '#9ca3af' } },
   { key: 'uncommon', label: 'Uncommon', weight: 20, badge: { shape: 'triangle', color: '#22c55e' } },
-  { key: 'rare', label: 'Rare', weight: 8, badge: { shape: 'square', color: '#a855f7' } },
-  { key: 'legendary', label: 'Legendary', weight: 2, badge: { shape: 'star', color: '#f97316' } },
+  { key: 'rare', label: 'Rare', weight: 9, badge: { shape: 'square', color: '#a855f7' } },
+  { key: 'legendary', label: 'Legendary', weight: 4, badge: { shape: 'star', color: '#f97316' } },
 ];
 
 // Delta is a separate roll that can stack with any rarity.

@@ -13,12 +13,14 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
   const [capCatchesEnabled, setCapCatchesEnabled] = useState(true);
   const [capCatches, setCapCatches] = useState(20);
 
+  const [capBallsEnabled, setCapBallsEnabled] = useState(true);
+
   const [balls, setBalls] = useState({ poke: 20, great: 10, ultra: 5, master: 0 });
 
   const [shinyCharm, setShinyCharm] = useState(false);
 
   const canStart = useMemo(() => {
-    const anyCap = capEncountersEnabled || capCatchesEnabled;
+    const anyCap = capEncountersEnabled || capCatchesEnabled || capBallsEnabled;
     const totalBalls = Object.values(balls).reduce((a, b) => a + (Number(b) || 0), 0);
     return anyCap && totalBalls > 0;
   }, [capEncountersEnabled, capCatchesEnabled, balls]);
@@ -66,7 +68,19 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
                 disabled={!capCatchesEnabled}
                 onChange={(e) => setCapCatches(clampInt(e.target.value, { min: 1, max: 99999 }))}
               />
+            
+            <div className="runRow">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={capBallsEnabled}
+                  onChange={(e) => setCapBallsEnabled(e.target.checked)}
+                />
+                Ball cap (run ends when you run out of balls)
+              </label>
             </div>
+
+</div>
 
             <div className="runRow" style={{ marginTop: 10 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -76,7 +90,7 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
             </div>
 
             <div className="profileSmallText" style={{ marginTop: 10 }}>
-              Run ends when you hit any enabled cap, or when you run out of balls.
+              Run ends when you hit any enabled cap.
             </div>
           </div>
 
@@ -116,6 +130,7 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
                 caps: {
                   encountersLeft: capEncountersEnabled ? capEncounters : null,
                   catchesLeft: capCatchesEnabled ? capCatches : null,
+                  ballsCapEnabled: !!capBallsEnabled,
                 },
               });
             }}

@@ -15,6 +15,7 @@ export const FORME_SUFFIXES = [
   // common form groups
   'origin','therian','incarnate',
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
+  'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
@@ -25,11 +26,14 @@ export const FORME_SUFFIXES = [
   // deoxys-like
   'attack','defense','speed',
 
+  //castform
+  'sunny', 'rainy', 'snowy',
+
   // weather trio / others
   'sky','land','sea',
 
   // necrozma-like / calyrex-like / etc
-  'dusk','dawn','ice','shadow',
+  'dusk','dawn','ice','shadow', 'neutral',
 
   // schools / mimikyu / etc
   'school','solo','busted', 'trash',

@@ -14,7 +14,8 @@ export default function Pokedex({
 }) {
   const [query, setQuery] = React.useState('');
   const [caughtOnly, setCaughtOnly] = React.useState(false);
-  const [uncaughtOnly, setUncaughtOnly] = React.useState(false);  const [rarityChecks, setRarityChecks] = React.useState(() => ({
+  const [uncaughtOnly, setUncaughtOnly] = React.useState(false);
+  const [rarityChecks, setRarityChecks] = React.useState(() => ({
     common: false,
     uncommon: false,
     rare: false,
@@ -197,7 +198,9 @@ export default function Pokedex({
               Close
             </button>
           </div>
+        </div>
 
+        <div className="dexScroll">
           <div className="dexHeaderRow">
             <div className="dexControls" style={{ width: '100%' }}>
               <input
@@ -304,10 +307,6 @@ export default function Pokedex({
           </div>
 
           <div className="dexDivider" />
-        </div>
-
-        {/* Scrollable body */}
-        <div className="dexScroll">
           <div className="dexGrid">
             {filtered.map((d) => {
               const dexNum = d.num;

@@ -9,7 +9,7 @@ function capName(name) {
     .join(' ');
 }
 
-export default function MiniRunSummaryModal({ open, onClose, summary }) {
+export default function MiniRunSummaryModal({ open, onClose, summary, onSelectMon }) {
   if (!open) return null;
   if (!summary) return null;
 
@@ -46,13 +46,13 @@ export default function MiniRunSummaryModal({ open, onClose, summary }) {
         </div>
 
         <div className="summaryGrid">
-          {caught.map((m) => (
-            <div key={m.uid} className="summaryTile">
+          {caught.map((m, idx) => (
+            <button key={m.uid} className="summaryTile summaryTileBtn" type="button" onClick={() => onSelectMon?.(m, idx)}>
               <div className="summaryTag">Game Over</div>
               <img className="summarySprite" src={m.spriteUrl} alt={m.name} />
               <div className="summaryName">{capName(m.name)}</div>
               <RarityBadge rarity={m.rarity} badge={m.badge} buff={m.buff} isDelta={!!m.isDelta} shiny={!!m.shiny} />
-            </div>
+            </button>
           ))}
         </div>
 

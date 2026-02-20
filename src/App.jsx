@@ -8,9 +8,11 @@ import TrainerProfile from './components/TrainerProfile.jsx';
 import NewMiniRunModal from './components/NewMiniRunModal.jsx';
 import MiniRunSummariesModal from './components/MiniRunSummariesModal.jsx';
 import MiniRunSummaryModal from './components/MiniRunSummaryModal.jsx';
+import MiniRunInfoModal from './components/MiniRunInfoModal.jsx';
+import PokemonDetail from './components/PokemonDetail.jsx';
 import { BALLS, calcCatchChance } from './balls.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
-import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, saveActiveMiniRun, clearActiveMiniRun, loadMiniSummaries, addMiniSummary } from './storage.js';
+import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, saveActiveMiniRun, clearActiveMiniRun, loadMiniSummaries, saveMiniSummaries, addMiniSummary } from './storage.js';
 import { getEvolutionOptions } from './evolution.js';
 import { getRandomSpawnableDexId, getDexEntryByNum } from './dexLocal.js';
 import { spriteFallbacksFromBundle } from './sprites.js';
@@ -55,9 +57,15 @@ function useIsMobile(breakpointPx = 820) {
 }
 
 export default function App() {
-  const [mode, setMode] = useState('main'); // 'main' | 'mini'
+  const [mode, setMode] = useState('main'); // 'main' | 'mini' | 'runview'
+  const [runViewId, setRunViewId] = useState(null);
   const mainSaveRef = useRef(null);
+  const suppressPersistOnceRef = useRef(false);
   const saveRef = useRef(null);
+  const miniEndLockRef = useRef(false);
+  const miniLastEncounterRef = useRef(false); // true when the current encounter is the last allowed encounter in a mini-run
+  const pendingMiniEndReasonRef = useRef(null); // 'Ran out of balls' etc (deferred until after throw outcome renders)
+
 
   function hydrateSave(loaded, base = defaultSave()) {
     if (!loaded) return base;
@@ -98,6 +106,7 @@ export default function App() {
 
   // idle|loading|ready|throwing|caught|broke
   const [stage, setStage] = useState('idle');
+  const [miniLastEncounter, setMiniLastEncounter] = useState(false);
   const [catchStreak, setCatchStreak] = useState(0);
 
   const [message, setMessage] = useState('');
@@ -110,10 +119,13 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
 
   const [showNewRun, setShowNewRun] = useState(false);
+  const [showMiniInfo, setShowMiniInfo] = useState(false);
   const [showRunSummaries, setShowRunSummaries] = useState(false);
   const [runSummaries, setRunSummaries] = useState(() => loadMiniSummaries());
   const [hasActiveMini, setHasActiveMini] = useState(() => !!loadActiveMiniRun());
   const [openSummary, setOpenSummary] = useState(null);
+  const [summaryDetail, setSummaryDetail] = useState(null); // { summaryId, uid, index }
+
   const devCheat = useRef({bagTaps: 0, armed: false, lastTap: 0});
 
 
@@ -687,12 +699,25 @@ function grantDailyGiftIfAvailable() {
 
   useEffect(() => {
     saveRef.current = save;
+    if (suppressPersistOnceRef.current) {
+      suppressPersistOnceRef.current = false;
+      return;
+    }
     if (mode === 'mini') {
       saveActiveMiniRun(save);
+    } else if (mode === 'runview') {
+      // Persist edits back into the saved run snapshot(s)
+      if (runViewId) {
+        setRunSummaries((prev) => {
+          const next = (prev || []).map((s) => (s?.id === runViewId ? { ...s, saveSnapshot: save, caught: save?.caught ?? s?.caught ?? [] } : s));
+          saveMiniSummaries(next);
+          return next;
+        });
+      }
     } else {
       saveSave(save);
     }
-  }, [save, mode]);
+  }, [save, mode, runViewId]);
 
   useEffect(() => {
     if (!attackAnim) return;
@@ -1023,7 +1048,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   }
 
   // Roll ONE wild (used for main spawn + grass slots)
-  async function rollOneEncounter() {
+  async function rollOneEncounter(opts = {}) {
+    const { trackSeen = true } = opts;
     const dexId = getRandomSpawnableDexId();
     const bundle = await fetchPokemonBundleByDexId(dexId);
 
@@ -1038,13 +1064,11 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
     const isDelta = rollDelta(rarity.key);
     const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
-
-    bumpSeen(rarity.key, isShiny, isDelta);
-
-    // ✅ Dex seen (base species, regardless of form)
-bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShiny, isDelta);
-
-
+    if (trackSeen) {
+      bumpSeen(rarity.key, isShiny, isDelta);
+      // ✅ Dex seen (base species, regardless of form)
+      bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShiny, isDelta);
+    }
     const finalFallback = isShiny
       ? (bundle.fallbackShinySprite || bundle.fallbackSprite)
       : bundle.fallbackSprite;
@@ -1067,7 +1091,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
 
   async function rollGrassSlots() {
     try {
-      const mons = await Promise.all([rollOneEncounter(), rollOneEncounter(), rollOneEncounter()]);
+      const mons = await Promise.all([rollOneEncounter({trackSeen:false}), rollOneEncounter({trackSeen:false}), rollOneEncounter({trackSeen:false})]);
       setGrassSlots(mons);
     } catch (e) {
       console.error('Failed to roll grass slots', e);
@@ -1082,10 +1106,47 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     // Hide the other two immediately
     setGrassSlots([]);
 
+    // Mini run: choosing a grass patch counts as starting a new encounter
+    if (inMiniRun()) {
+      const left = saveRef.current?.miniRun?.caps?.encountersLeft;
+      if (left === 0) {
+        endMiniRun('Out of encounters');
+        return;
+      }
+      const isLast = (typeof left === 'number' && left === 1);
+      miniLastEncounterRef.current = isLast;
+      setMiniLastEncounter(isLast);
+
+      if (typeof left === 'number') {
+        setSave((prev) => {
+          const curLeft = prev?.miniRun?.caps?.encountersLeft;
+          if (typeof curLeft !== 'number') return prev;
+          const nextLeft = Math.max(0, curLeft - 1);
+          return {
+            ...prev,
+            miniRun: {
+              ...prev.miniRun,
+              caps: { ...prev.miniRun.caps, encountersLeft: nextLeft },
+            },
+          };
+        });
+      }
+    } else {
+      miniLastEncounterRef.current = false;
+      setMiniLastEncounter(false);
+    }
+
+
     // Start the picked encounter
     setMessage('');
     setStage('ready');
     setWild(picked);
+
+    // Track "seen" ONLY when the player actually chooses an encounter (not on grass previews)
+    try {
+      bumpSeen(picked?.rarityKey || picked?.rarity || picked?.rarity?.key || 'common', !!picked?.shiny, !!picked?.isDelta);
+      bumpDexSeenFromAny(picked?.dexId ?? picked?.name ?? picked?.num ?? picked?.id, !!picked?.shiny, !!picked?.isDelta);
+    } catch {}
     setActiveBall(null);
     setPityFails(0);
     resetEncounterAssist();
@@ -1116,44 +1177,65 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     setCatchStreak(0);
     resetEncounterAssist();
     setGrassSlots([]);
+    setMiniLastEncounter(false);
   }
 
   function endMiniRun(reason = 'Game Over') {
-    const cur = saveRef.current;
-    if (!cur?.miniRun || cur.miniRun.gameOver) return;
+  if (miniEndLockRef.current) return;
+  const cur = saveRef.current;
+  if (!cur?.miniRun || cur.miniRun.gameOver) return;
 
-    const summary = {
-      id: cur.miniRun.id,
-      createdAt: cur.miniRun.createdAt,
-      endedAt: Date.now(),
-      reason,
-      capsInitial: cur.miniRun.capsInitial,
-      ballsInitial: cur.miniRun.ballsInitial,
-      caught: cur.caught ?? [],
-      counts: { caught: (cur.caught ?? []).length },
-    };
+  miniEndLockRef.current = true;
+  const endedAt = Date.now();
 
-    const next = addMiniSummary(summary, 3);
-    setRunSummaries(next);
+  const endedSave = {
+    ...cur,
+    miniRun: {
+      ...cur.miniRun,
+      gameOver: true,
+      endedAt,
+      endReason: reason,
+    },
+  };
 
-    clearActiveMiniRun();
-    setHasActiveMini(false);
-    setOpenSummary(summary);
+  const summary = {
+    id: cur.miniRun.id,
+    createdAt: cur.miniRun.createdAt,
+    endedAt,
+    reason,
+    capsInitial: cur.miniRun.capsInitial,
+    ballsInitial: cur.miniRun.ballsInitial,
+    caught: endedSave.caught ?? [],
+    counts: { caught: (endedSave.caught ?? []).length },
+    // full snapshot so we can view/edit (evolve, move tokens) later from Run Saves
+    saveSnapshot: endedSave,
+  };
 
-    // Return to main
-    setMode('main');
-    const main = mainSaveRef.current ?? hydrateSave(loadSave());
-    mainSaveRef.current = null;
-    setSave(main);
+  const next = addMiniSummary(summary, 3);
+  setRunSummaries(next);
 
-    resetSoftState();
-  }
+  // Once ended, treat it as a saved snapshot (not resumable as an active run).
+  clearActiveMiniRun();
+  setHasActiveMini(false);
+
+  // Return player to main save immediately.
+  suppressPersistOnceRef.current = true;
+  setMode('main');
+  // Always reload main from storage (source of truth), then reconcile pokedex for profile.
+  const mainLoaded = hydrateSave(loadSave()) ?? mainSaveRef.current ?? defaultSave();
+  const main = reconcilePokedexForProfile(mainLoaded);
+  setSave(main);
+
+  setOpenSummary(summary);
+}
 
   function startMiniRun(config) {
     if (mode !== 'mini') mainSaveRef.current = save;
+    miniEndLockRef.current = false;
     const runSave = defaultMiniRun(config);
     saveActiveMiniRun(runSave);
     setHasActiveMini(true);
+    suppressPersistOnceRef.current = true;
     setMode('mini');
     setSave(runSave);
     resetSoftState();
@@ -1161,35 +1243,197 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
   }
 
   function resumeMiniRun() {
+    miniEndLockRef.current = false;
     const loaded = loadActiveMiniRun();
     if (!loaded) return;
     if (mode !== 'mini') mainSaveRef.current = save;
+    suppressPersistOnceRef.current = true;
     setMode('mini');
     setSave(hydrateSave(loaded));
     resetSoftState();
     window.setTimeout(() => spawn(), 50);
   }
 
+
+function viewSavedRun(summary) {
+  if (!summary?.saveSnapshot) return;
+  // Load the saved run snapshot in a read-only "run view" mode (no encounters),
+  // but allow Pokémon detail actions (evolve, move tokens).
+  miniEndLockRef.current = true;
+  suppressPersistOnceRef.current = true;
+  setMode('runview');
+  setRunViewId(summary.id);
+  setSave(hydrateSave(summary.saveSnapshot));
+  resetSoftState();
+  setShowPC(true);
+}
+
+
+  // --- Mini run summary editing (PokemonDetail from the summary modal) ---
+  function updateRunSummaryById(summaryId, updater) {
+    setRunSummaries((prev) => {
+      const next = (prev || []).map((s) => (s?.id === summaryId ? updater(s) : s));
+      try { saveMiniSummaries(next); } catch {}
+      return next;
+    });
+    setOpenSummary((prev) => (prev && prev.id === summaryId ? updater(prev) : prev));
+  }
+
+  function replaceMoveWithTokenInSummary(summaryId, uid, slotIndex, moveDisplay) {
+    updateRunSummaryById(summaryId, (sum) => {
+      const snap = sum?.saveSnapshot;
+      if (!snap) return sum;
+      const tokens = snap.moveTokens ?? 0;
+      if (tokens <= 0) return sum;
+
+      const nextCaught = (snap.caught ?? []).map((m) => {
+        if (m.uid !== uid) return m;
+        const moves = (m.moves ?? []).slice(0, 4);
+        moves[slotIndex] = { kind: 'token', id: moveDisplay.id, name: moveDisplay.name, meta: moveDisplay.meta };
+        return { ...m, moves };
+      });
+
+      return { ...sum, saveSnapshot: { ...snap, moveTokens: Math.max(0, tokens - 1), caught: nextCaught } };
+    });
+  }
+
+  async function evolveCaughtInSummary(summaryId, uidToEvolve, targetDexId) {
+    const sum = (openSummary?.id === summaryId) ? openSummary : (runSummaries || []).find(s => s?.id === summaryId);
+    const snap = sum?.saveSnapshot;
+    if (!snap) return;
+
+    const idx = (snap.caught ?? []).findIndex(m => m.uid === uidToEvolve);
+    if (idx < 0) return;
+
+    const mon = snap.caught[idx];
+    const options = targetDexId ? [targetDexId] : getEvolutionOptions(mon.formId ?? mon.speciesId ?? mon.name);
+    if (!options || options.length === 0) {
+      alert('This Pokémon cannot evolve.');
+      return;
+    }
+
+    const chosenDexId = targetDexId || options[Math.floor(Math.random() * options.length)];
+    const evolvedBundle = await fetchPokemonBundleByDexId(chosenDexId);
+
+    const evoCandidates = spriteFallbacksFromBundle(evolvedBundle, !!mon.shiny);
+    const evoFinalFallback = mon.shiny ? (evolvedBundle.fallbackShinySprite || evolvedBundle.fallbackSprite) : evolvedBundle.fallbackSprite;
+    const spriteCandidates = [...evoCandidates, evoFinalFallback].filter(Boolean);
+    const spriteUrlResolved = spriteCandidates[0] || "";
+
+    const evolvedWild = {
+      ...evolvedBundle,
+      rarity: mon.rarity,
+      badge: mon.badge,
+      buffs: mon.buffs ?? (mon.buff ? [mon.buff] : []),
+      isDelta: !!(mon.isDelta),
+      types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
+    };
+
+    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny);
+
+    evolvedRecord.uid = mon.uid;
+    evolvedRecord.caughtAt = mon.caughtAt;
+    evolvedRecord.locked = !!mon.locked;
+
+    evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
+    evolvedRecord.isDelta = !!(mon.isDelta);
+    if (mon.isDelta) evolvedRecord.types = mon.types;
+
+    updateRunSummaryById(summaryId, (s) => {
+      const snap2 = s?.saveSnapshot;
+      if (!snap2) return s;
+      const nextCaught = [...(snap2.caught ?? [])];
+      const i = nextCaught.findIndex(m => m.uid === uidToEvolve);
+      if (i < 0) return s;
+      nextCaught[i] = evolvedRecord;
+      return { ...s, saveSnapshot: { ...snap2, caught: nextCaught } };
+    });
+  }
+
   function returnToMain() {
     if (mode !== 'mini') return;
+    suppressPersistOnceRef.current = true;
     setMode('main');
-    const main = mainSaveRef.current ?? hydrateSave(loadSave());
+    const mainLoaded = hydrateSave(loadSave()) ?? mainSaveRef.current ?? defaultSave();
+    const main = reconcilePokedexForProfile(mainLoaded);
     mainSaveRef.current = null;
     setSave(main);
     resetSoftState();
   }
 
+  // If main pokedex got out of sync (e.g., after mini-run transitions),
+  // reconcile it using the caught list so the Trainer Profile dex count is correct.
+  function reconcilePokedexForProfile(s) {
+    if (!s) return s;
+    const pokedex = { ...(s.pokedex ?? {}) };
+
+    const countFromPokedex = () => {
+      let c = 0;
+      for (const [k, v] of Object.entries(pokedex)) {
+        if (!/^\d+$/.test(k)) continue;
+        if ((v?.caught ?? 0) > 0) c += 1;
+      }
+      return c;
+    };
+
+    const baseNums = new Set();
+    for (const m of (s.caught ?? [])) {
+      const n = getBaseDexNumFromMon(m);
+      if (typeof n === 'number') baseNums.add(n);
+    }
+
+    const dexCount = countFromPokedex();
+    if (baseNums.size <= dexCount) return s;
+
+    for (const n of baseNums) {
+      const key = String(n);
+      const cur = pokedex[key] ?? {};
+      if ((cur.caught ?? 0) > 0) continue;
+      pokedex[key] = { ...cur, caught: 1, seen: Math.max(cur.seen ?? 0, 1) };
+    }
+
+    return { ...s, pokedex };
+  }
+
+  function getBaseDexNumFromMon(m) {
+    if (!m) return undefined;
+    const direct = m.dexId ?? m.dexNum ?? m.num;
+    if (typeof direct === 'number') return direct;
+    const anyId = toID(m.formId ?? m.speciesId ?? m.name ?? '');
+    if (!anyId) return undefined;
+    try {
+      const entry = getDexById({ id: anyId });
+      if (!entry) return undefined;
+      const baseId = toID(entry.baseSpecies || entry.id || entry.name || anyId);
+      try {
+        const baseEntry = getDexById({ id: baseId });
+        return baseEntry?.num ?? entry?.num;
+      } catch {
+        return entry?.num;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+
   async function spawn() {
     if (stage === 'loading' || stage === 'throwing') return;
 
-    // Mini run: encounters cap
+// Mini run: encounters cap
     if (inMiniRun()) {
-      const left = save?.miniRun?.caps?.encountersLeft;
+      const left = saveRef.current?.miniRun?.caps?.encountersLeft;
       if (left === 0) {
         endMiniRun('Out of encounters');
         return;
       }
+      const isLast = (typeof left === 'number' && left === 1);
+      miniLastEncounterRef.current = isLast;
+      setMiniLastEncounter(isLast);
+    } else {
+      miniLastEncounterRef.current = false;
+      setMiniLastEncounter(false);
     }
+
 
     setMessage('');
     setStage('loading');
@@ -1240,13 +1484,7 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
         ...prev.balls,
         [ballKey]: Math.max(0, (prev.balls?.[ballKey] ?? 0) - 1),
       };
-      const next = { ...prev, balls: nextBalls };
-
-      // Mini run: if you run out of balls, end the run.
-      if (mode === 'mini' && prev?.miniRun && allBallsEmpty(next)) {
-        window.setTimeout(() => endMiniRun('Out of balls'), 0);
-      }
-      return next;
+      return { ...prev, balls: nextBalls };
     });
   }
 
@@ -1386,6 +1624,17 @@ bumpDexSeenFromAny(bundle.dexId ?? bundle.name ?? bundle.num ?? bundle.id, isShi
     const ball = BALLS.find(b => b.key === ballKey);
     if (!ball) return;
 
+    // Pre-compute balls-after-this-throw so mini-run ball cap can end AFTER the result is shown.
+    const ballsAfterThrow = {
+      ...(saveRef.current?.balls ?? save.balls ?? {}),
+      [ballKey]: Math.max(0, count - 1),
+    };
+    const ballsEmptyAfterThrow =
+      (ballsAfterThrow.poke ?? 0) <= 0 &&
+      (ballsAfterThrow.great ?? 0) <= 0 &&
+      (ballsAfterThrow.ultra ?? 0) <= 0 &&
+      (ballsAfterThrow.master ?? 0) <= 0;
+
     decrementBall(ballKey);
 
     setMovesUsedSinceThrow(0);
@@ -1455,6 +1704,13 @@ bumpDexCaughtFromAny(
 
             return next;
           });
+
+          // Mini run: end conditions that must wait until the throw outcome is shown/logged.
+          if (mode === 'mini' && saveRef.current?.miniRun?.caps?.encountersLeft === 0 && miniLastEncounterRef.current) {
+            window.setTimeout(() => endMiniRun('Out of encounters'), 0);
+          } else if (mode === 'mini' && saveRef.current?.miniRun?.caps?.ballsCapEnabled && ballsEmptyAfterThrow) {
+            window.setTimeout(() => endMiniRun('Ran out of balls'), 0);
+          }
         } else {
           setStage('broke');
           setMessage(`${capName(wild.name)} broke free!`);
@@ -1466,6 +1722,11 @@ bumpDexCaughtFromAny(
             setAttacksLeft(4);
           }
           setAttackAnim(null);
+
+          // Mini run: if balls are now empty and ball cap is enabled, end after showing the breakout.
+          if (mode === 'mini' && saveRef.current?.miniRun?.caps?.ballsCapEnabled && ballsEmptyAfterThrow) {
+            window.setTimeout(() => endMiniRun('Ran out of balls'), 0);
+          }
         }
       })();
     }, 900);
@@ -1625,7 +1886,7 @@ bumpDexCaughtFromAny(
           </div>
 
           <button
-            className="btnSmall"
+            className="btnSmall topEmojiBtn"
             onClick={() => setShowSettings(true)}
             aria-label="Open Settings"
             title="Settings"
@@ -1636,7 +1897,7 @@ bumpDexCaughtFromAny(
 
 
 <button
-  className="btnSmall"
+  className="btnSmall topEmojiBtn"
   onClick={() => setShowProfile(true)}
   aria-label="Open Trainer Profile"
   title="Trainer Profile"
@@ -1647,15 +1908,29 @@ bumpDexCaughtFromAny(
 
           {mode === 'mini' ? (
             <>
-              <div className="runBadge" title="You are in a mini run">🎮 Mini Run</div>
-              <button className="btnSmall" onClick={returnToMain} title="Return to main save" type="button">🏠</button>
+              <button
+                className="runBadge topEmojiBtn"
+                title="Mini run info"
+                type="button"
+                onClick={() => setShowMiniInfo(true)}
+              >
+                🎮 Mini Run
+              </button>
+              <button className="btnSmall topEmojiBtn" onClick={returnToMain} title="Return to main save" type="button">🏠</button>
             </>
           ) : (
             <>
-              <button className="btnSmall" onClick={() => setShowNewRun(true)} title="Start a new mini run" type="button">🎮</button>
-              <button className="btnSmall" onClick={() => setShowRunSummaries(true)} title="View mini run summaries" type="button">🗂️</button>
+              <button
+                className="btnSmall topEmojiBtn"
+                onClick={() => (mode === 'mini' ? setShowMiniInfo(true) : setShowNewRun(true))}
+                title={mode === 'mini' ? 'Mini run info' : 'Start a new mini run'}
+                type="button"
+              >
+                🎮
+              </button>
+              <button className="btnSmall topEmojiBtn" onClick={() => setShowRunSummaries(true)} title="View mini run summaries" type="button">🗂️</button>
               {hasActiveMini && (
-                <button className="btnSmall" onClick={resumeMiniRun} title="Resume active mini run" type="button">▶️</button>
+                <button className="btnSmall topEmojiBtn" onClick={resumeMiniRun} title="Resume active mini run" type="button">▶️</button>
               )}
             </>
           )}
@@ -1736,6 +2011,49 @@ bumpDexCaughtFromAny(
 
         </div>
       </header>
+      {/* Mobile right-side rail: keeps emoji buttons off the top row */}
+      <div className="mobileRightRail" aria-label="Quick actions">
+        <button
+          className="btnSmall railBtn railBtnBackpack"
+          onClick={() => setShowBackpack(v => !v)}
+          title="Backpack"
+          aria-label="Backpack"
+          type="button"
+        >
+          <span className="railIcon">🎒</span>
+          <span className="railSub" aria-label="Move tokens">{save?.moveTokens ?? 0}</span>
+        </button>
+
+        <button className="btnSmall railBtn" onClick={() => setShowDex(true)} title="Pokédex" aria-label="Pokédex" type="button">📘</button>
+
+        {/* Mini-run controls mirror desktop behavior on mobile */}
+        {mode === 'mini' ? (
+          <>
+            <button
+              className="btnSmall railBtn railActive"
+              title="Mini run info"
+              aria-label="Mini run info"
+              type="button"
+              onClick={() => setShowMiniInfo(true)}
+            >
+              🎮
+            </button>
+            <button className="btnSmall railBtn" onClick={returnToMain} title="Return to main save" aria-label="Return to main save" type="button">🏠</button>
+          </>
+        ) : (
+          <>
+            <button className="btnSmall railBtn" onClick={() => setShowNewRun(true)} title="Start new run" aria-label="Start new run" type="button">🎮</button>
+            <button className="btnSmall railBtn" onClick={() => setShowRunSummaries(true)} title="Run summaries" aria-label="Run summaries" type="button">🗂️</button>
+            {hasActiveMini ? (
+              <button className="btnSmall railBtn" onClick={resumeMiniRun} title="Resume run" aria-label="Resume run" type="button">▶️</button>
+            ) : null}
+          </>
+        )}
+
+        <button className="btnSmall railBtn" onClick={() => setShowProfile(true)} title="Trainer profile" aria-label="Trainer profile" type="button">👤</button>
+        <button className="btnSmall railBtn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" type="button">⚙️</button>
+      </div>
+
 
       <main className="stage">
         {stage === 'idle' || stage === 'loading' ? (
@@ -1745,7 +2063,7 @@ bumpDexCaughtFromAny(
             disabled={stage === 'loading'}
             aria-label="Tap to find a random Pokémon"
           >
-            <PokeballIcon variant="poke" size={180} />
+            <PokeballIcon variant="poke" size={isMobile ? 140 : 180} />
             <div className="hint">{stage === 'loading' ? 'Searching...' : 'Tap the Poké Ball'}</div>
           </button>
         ) : null}
@@ -1788,6 +2106,11 @@ bumpDexCaughtFromAny(
 
               <div className="wildArea">
                 <div className="wildName">Wild {capName(wild.name)} appeared!</div>
+                {mode === 'mini' && miniLastEncounter ? (
+                  <div className="lastEncounterBadge" title="Last encounter in this run" aria-label="Last encounter">
+                    ❗ Last encounter
+                  </div>
+                ) : null}
 
                 <div className="wildSpriteWrap">
                   <div className="rarityCorner">
@@ -1956,7 +2279,11 @@ bumpDexCaughtFromAny(
                   ) : stage === 'broke' ? (
                     <>
                       <button className="btn" onClick={resetToReady}>Try again</button>
-                      <button className="btnGhost" onClick={spawn}>Run & find another</button>
+                      {mode === 'mini' && miniLastEncounter ? (
+                        <button className="btnGhost" onClick={() => endMiniRun('Out of encounters')}>Give up &amp; end run</button>
+                      ) : (
+                        <button className="btnGhost" onClick={spawn}>Run &amp; find another</button>
+                      )}
                     </>
                   ) : (
                     <button className="btnGhost" onClick={resetToIdle}>Reset</button>
@@ -2048,6 +2375,14 @@ bumpDexCaughtFromAny(
         }}
       />
 
+      <MiniRunInfoModal
+        open={showMiniInfo}
+        onClose={() => setShowMiniInfo(false)}
+        save={save}
+        mode={mode}
+        hasActiveMini={hasActiveMini}
+      />
+
       <MiniRunSummariesModal
         open={showRunSummaries}
         onClose={() => setShowRunSummaries(false)}
@@ -2060,9 +2395,27 @@ bumpDexCaughtFromAny(
 
       <MiniRunSummaryModal
         open={!!openSummary}
-        onClose={() => setOpenSummary(null)}
+        onClose={() => {
+          setOpenSummary(null);
+          setSummaryDetail(null);
+        }}
         summary={openSummary}
+        onSelectMon={(m, idx) => setSummaryDetail({ summaryId: openSummary?.id, uid: m?.uid, index: idx })}
       />
+
+      {summaryDetail && openSummary?.saveSnapshot ? (
+        <PokemonDetail
+          mon={(openSummary.saveSnapshot.caught ?? [])[summaryDetail.index]}
+          onClose={() => setSummaryDetail(null)}
+          onEvolve={(uid, targetDexId) => evolveCaughtInSummary(openSummary.id, uid, targetDexId)}
+          teamUids={[]} // run summary is separate from team management
+          onToggleTeam={() => {}}
+          moveTokens={openSummary.saveSnapshot.moveTokens ?? 0}
+          onReplaceMove={(uid, slot, moveDisplay) => replaceMoveWithTokenInSummary(openSummary.id, uid, slot, moveDisplay)}
+          onRelease={() => {}}
+          onToggleLock={() => {}}
+        />
+      ) : null}
 
       {showDex && (
       <Pokedex

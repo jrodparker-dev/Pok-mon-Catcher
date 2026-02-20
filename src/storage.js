@@ -157,10 +157,12 @@ export function defaultMiniRun({ shinyCharm = false, balls = { poke: 15, great: 
       caps: {
         encountersLeft: (typeof caps.encountersLeft === 'number') ? Math.max(0, Math.floor(caps.encountersLeft)) : null,
         catchesLeft: (typeof caps.catchesLeft === 'number') ? Math.max(0, Math.floor(caps.catchesLeft)) : null,
+        ballsCapEnabled: (caps.ballsCapEnabled === undefined) ? true : !!caps.ballsCapEnabled,
       },
       capsInitial: {
         encountersLeft: (typeof caps.encountersLeft === 'number') ? Math.max(0, Math.floor(caps.encountersLeft)) : null,
         catchesLeft: (typeof caps.catchesLeft === 'number') ? Math.max(0, Math.floor(caps.catchesLeft)) : null,
+        ballsCapEnabled: (caps.ballsCapEnabled === undefined) ? true : !!caps.ballsCapEnabled,
       },
       ballsInitial: { ...balls },
     },
