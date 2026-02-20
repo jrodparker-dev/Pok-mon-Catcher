@@ -47,8 +47,8 @@ export function describeBuff(buff) {
   if (buff.kind === 'stat2') return `+${buff.amount} ${buff.stats[0].toUpperCase()} +${buff.amount} ${buff.stats[1].toUpperCase()}`;
   if (buff.kind === 'catch-active') return `+${buff.pct}% catch (active)`;
   if (buff.kind === 'catch-team') return `+${buff.pct}% catch (team)`;
-  if (buff.kind === 'shiny-active') return `+${buff.pct}% shiny (active)`;
-  if (buff.kind === 'shiny-team') return `+${buff.pct}% shiny (team)`;
+  if (buff.kind === 'shiny-active') return `×${(buff.mult ?? 1).toFixed(2)} shiny (active)`;
+  if (buff.kind === 'shiny-team') return `×${(buff.mult ?? 1).toFixed(2)} shiny (team)`;
   if (buff.kind === 'rarity-active') return `+${buff.pct}% rarity (active)`;
   if (buff.kind === 'rarity-team') return `+${buff.pct}% rarity (team)`;
   if (buff.kind === 'ko-ball-active') return `${buff.pct}% ball on KO (active)`;
@@ -126,14 +126,14 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
   if (rarityKey === 'common') {
     pool.push(
       { kind: 'catch-active', pct: randInt(1, 5, rng) },
-      { kind: 'shiny-active', pct: 1 },
+      { kind: 'shiny-active', mult: 1.1 },
       { kind: 'rarity-active', pct: 4 },
       { kind: 'ko-ball-active', pct: randInt(1, 5, rng) },
     );
   } else if (rarityKey === 'uncommon') {
     pool.push(
       { kind: 'catch-active', pct: randInt(5, 10, rng) },
-      { kind: 'shiny-active', pct: 2 },
+      { kind: 'shiny-active', mult: 1.25 },
       { kind: 'rarity-active', pct: 6 },
       { kind: 'ko-ball-active', pct: randInt(5, 10, rng) },
     );
@@ -141,8 +141,8 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     pool.push(
       { kind: 'catch-active', pct: randInt(10, 15, rng) },
       { kind: 'catch-team', pct: 5 },
-      { kind: 'shiny-active', pct: 3 },
-      { kind: 'shiny-team', pct: 1 },
+      { kind: 'shiny-active', mult: 1.5 },
+      { kind: 'shiny-team', mult: 1.2 },
       { kind: 'rarity-active', pct: 8 },
       { kind: 'rarity-team', pct: 3 },
       { kind: 'ko-ball-active', pct: randInt(15, 20, rng) },
@@ -151,8 +151,8 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     pool.push(
       { kind: 'catch-active', pct: randInt(20, 30, rng) },
       { kind: 'catch-team', pct: 10 },
-      { kind: 'shiny-active', pct: 5 },
-      { kind: 'shiny-team', pct: 2 },
+      { kind: 'shiny-active', mult: 2.0 },
+      { kind: 'shiny-team', mult: 1.4 },
       { kind: 'rarity-active', pct: 10 },
       { kind: 'rarity-team', pct: 5 },
       { kind: 'ko-ball-active', pct: randInt(20, 30, rng) },

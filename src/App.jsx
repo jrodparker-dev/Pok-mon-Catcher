@@ -22,7 +22,7 @@ import { getDexById } from './dexLocal.js';
 
 const BASE_SHINY_CHANCE = 1 / 500; // default: 1 in 500
 const SHINY_STREAK_BONUS = 0.005; // +0.5% per consecutive catch
-const MAX_SHINY_CHANCE = 0.10; // safety cap (10%)
+const MAX_SHINY_CHANCE = 0.05; // safety cap (5%)
 
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
@@ -199,7 +199,8 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   // --- Buff helpers (active/team bonuses) ---
   function getBuffTotalsFromMons(mons, activeUid) {
     let catchPct = 0;
-    let shinyPct = 0;
+    // Shiny buffs are multiplicative now (e.g. 1.25x). Start at 1.0.
+    let shinyMult = 1;
     let rarityPct = 0;
     let koBallPct = 0;
 
@@ -210,24 +211,26 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
 
         // team buffs apply if mon is on team
         if (b.kind === 'catch-team') catchPct += (b.pct ?? 0);
-        if (b.kind === 'shiny-team') shinyPct += (b.pct ?? 0);
+        if (b.kind === 'shiny-team') shinyMult *= (b.mult ?? 1);
         if (b.kind === 'rarity-team') rarityPct += (b.pct ?? 0);
 
         // active-only buffs apply only for the active mon
         if (m?.uid === activeUid) {
           if (b.kind === 'catch-active') catchPct += (b.pct ?? 0);
-          if (b.kind === 'shiny-active') shinyPct += (b.pct ?? 0);
+          if (b.kind === 'shiny-active') shinyMult *= (b.mult ?? 1);
           if (b.kind === 'rarity-active') rarityPct += (b.pct ?? 0);
           if (b.kind === 'ko-ball-active') koBallPct += (b.pct ?? 0);
           if (b.kind === 'boost-all-active') {
             catchPct += (b.catchPct ?? 0);
-            shinyPct += (b.shinyPct ?? 0);
+            // Legacy field is shinyPct (%). Treat as multiplier: +5% => 1.05x.
+            const pct = (b.shinyPct ?? 0);
+            shinyMult *= (1 + pct / 100);
             rarityPct += (b.rarityPct ?? 0);
           }
         }
       }
     }
-    return { catchPct, shinyPct, rarityPct, koBallPct };
+    return { catchPct, shinyMult, rarityPct, koBallPct };
   }
 
   function applyRarityBoost(rarityObj, rarityBoostPct, rng = Math.random) {
@@ -1064,7 +1067,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     const buffs = rollBuffs(rarity.key, bundle);
     const baseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
     const totals2 = getBuffTotalsFromMons(teamMons, activeTeamUid);
-    const shinyChance = Math.min(MAX_SHINY_CHANCE, baseShiny + (totals2.shinyPct / 100) + SHINY_STREAK_BONUS * catchStreak);
+    const shinyMult = (totals2.shinyMult ?? 1);
+    const shinyChance = Math.min(MAX_SHINY_CHANCE, (baseShiny + SHINY_STREAK_BONUS * catchStreak) * shinyMult);
     const isShiny = Math.random() < shinyChance;
 
     const isDelta = rollDelta(rarity.key);
@@ -1423,6 +1427,9 @@ function viewSavedRun(summary) {
 
   async function spawn() {
     if (stage === 'loading' || stage === 'throwing') return;
+
+    // Starting a new encounter via "Find another" / "Run & find another" resets the shiny chain.
+    setCatchStreak(0);
 
 // Mini run: encounters cap
     if (inMiniRun()) {
@@ -1858,6 +1865,7 @@ bumpDexCaughtFromAny(
           }
         } else {
           setStage('broke');
+          setCatchStreak(0);
           setMessage(`${capName(wild.name)} broke free!`);
           if ((wild.captureRate ?? 255) <= 100) {
             setPityFails(prev => Math.min(4, prev + 1));
@@ -2010,7 +2018,7 @@ bumpDexCaughtFromAny(
   const hudBaseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
   const hudShinyChance = Math.min(
     MAX_SHINY_CHANCE,
-    hudBaseShiny + (hudTotals.shinyPct / 100) + SHINY_STREAK_BONUS * catchStreak
+    (hudBaseShiny + SHINY_STREAK_BONUS * catchStreak) * (hudTotals.shinyMult ?? 1)
   );
   const hudShinyPct = hudShinyChance * 100;
   const hudOneIn = hudShinyChance > 0 ? Math.round(1 / hudShinyChance) : 0;
@@ -2023,7 +2031,7 @@ bumpDexCaughtFromAny(
         <div style={{ display: 'flex', gap: '8px' }}>
           <div
             className="shinyChancePill"
-            title={`Current shiny chance: ${hudShinyPct.toFixed(2)}% (≈ 1 in ${hudOneIn})\nIncludes active/team buffs and catch streak.`}
+            title={`Current shiny chance: ${hudShinyPct.toFixed(2)}% (≈ 1 in ${hudOneIn})\nIncludes active/team buffs (multipliers) and catch streak.`}
             aria-label={`Current shiny chance ${hudShinyPct.toFixed(2)} percent`}
           >
             <span className="sparkle">✨</span>
@@ -2374,24 +2382,13 @@ bumpDexCaughtFromAny(
                         </span>
                         <div className="mobileBuffDesc">
                           {(() => {
+                            // Buff system uses wild.buffs (array). Mobile previously looked at wild.buff (legacy)
+                            // which made everything show as "No buff".
                             const parts = [];
                             if (wild?.isDelta) parts.push('Delta Typing');
-                            const b = wild?.buff;
-                            if (!b || b.kind === 'none') {
-                              parts.push('No buff');
-                            } else if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
-                              parts.push(`+${b.amount} ${String(b.stat || '').toUpperCase()}`);
-                            } else if (b.kind === 'stat+15x2') {
-                              const a = String(b.stats?.[0] || '').toUpperCase();
-                              const c = String(b.stats?.[1] || '').toUpperCase();
-                              parts.push(`+${b.amount} ${a} & +${b.amount} ${c}`);
-                            } else if (b.kind === 'custom-move') {
-                              parts.push('Custom Move');
-                            } else if (b.kind === 'chosen-ability') {
-                              parts.push('Chosen Ability');
-                            } else {
-                              parts.push(String(b.kind));
-                            }
+                            const buffsText = formatBuffsShort(wild?.buffs);
+                            if (!buffsText || buffsText === 'none') parts.push('No buff');
+                            else parts.push(buffsText);
                             return `Buff: ${parts.join(' • ')}`;
                           })()}
                         </div>
