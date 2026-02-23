@@ -522,7 +522,7 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
-  opacity: 0.16;
+  opacity: 0.25;
   pointer-events:none;
   z-index: 0;
 }
