@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import RarityBadge from './RarityBadge.jsx';
+import PokeballIcon from './PokeballIcon.jsx';
 import { getEvolutionOptions } from '../evolution.js';
 import { getDexById } from '../dexLocal.js';
 import { rollRandomMoveIds, getMoveDisplay } from '../randomMoveTokens.js';
@@ -125,7 +126,11 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
                 {isDelta ? <RarityBadge badge={DELTA_BADGE} size={18} /> : null}
                 {baseRarityBadge ? <RarityBadge badge={baseRarityBadge} size={18} /> : null}
               </div>
-              <span>#{mon.dexId ?? mon.id} {cap(mon.name)}{mon.shiny ? ' ✨' : ''}</span>
+              <span className="modalTitleText">#{mon.dexId ?? mon.id} {cap(mon.name)}</span>
+              {mon.shiny ? <span className="modalTitleIcon" aria-label="Shiny">✨</span> : null}
+              <span className="modalTitleIcon">
+                <PokeballIcon variant={(mon.caughtBall || mon.ballKey || "poke")} size={18} />
+              </span>
             </div>
             <div className="modalSub">
               {cap(mon.rarity)} • {(Array.isArray(mon.buffs) ? mon.buffs.map(describeBuff).filter(Boolean).join(' • ') : (mon.buff ? describeBuff(mon.buff) : 'none'))}{mon.shiny ? ' • ✨ Shiny' : ''}

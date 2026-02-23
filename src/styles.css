@@ -498,13 +498,41 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   gap: 10px;
 }
 .gridItem{
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.04);
+  /* PC Box tile */
+  --pcTileBg: rgba(8, 12, 20, 0.55);
+
+  background: var(--pcTileBg);
   border-radius: 16px;
   padding: 10px 8px;
-  position:relative;
-  text-align:center;
+  position: relative;
+  text-align: center;
+  overflow: hidden;
 }
+
+/* PC Box: ball watermark behind the sprite */
+.gridItem.hasBallWm::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:54%;
+  width: 78%;
+  height: 78%;
+  transform: translate(-50%, -50%);
+  background-image: var(--ballWm);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.16;
+  pointer-events:none;
+  z-index: 0;
+}
+
+.gridItem .gridSprite,
+.gridItem .gridName{
+  position: relative;
+  z-index: 2;
+}
+
 .gridSprite{
   width: 76px;
   height: 76px;
@@ -1801,4 +1829,46 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   .topBar{
     padding-right: 60px; /* make room for the rail */
   }
+}
+
+/* PC Box: outline shows the ball used to catch the mon */
+.gridItem.ballOutline-poke{
+  --ballOutline: linear-gradient(to bottom, #d53434 0 50%, #f2f2f2 50% 100%);
+}
+.gridItem.ballOutline-great{
+  --ballOutline: linear-gradient(to bottom,
+    #2f6fe6 0 40%,
+    #d53434 40% 44%,
+    #2f6fe6 44% 50%,
+    #f2f2f2 50% 100%
+  );
+}
+.gridItem.ballOutline-ultra{
+  --ballOutline: linear-gradient(to bottom,
+    #0f0f10 0 30%,
+    #f0c20a 30% 50%,
+    #f2f2f2 50% 100%
+  );
+}
+.gridItem.ballOutline-master{
+  --ballOutline: linear-gradient(to bottom,
+    #5a33b8 0 40%,
+    #f05aa5 40% 44%,
+    #5a33b8 44% 50%,
+    #f2f2f2 50% 100%
+  );
+}
+
+/* Pokemon detail title icons */
+.modalTitleText{
+  font-weight: 900;
+}
+.modalTitleIcon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-left: 6px;
+}
+.modalTitleIcon .ballIconImg{
+  display:block;
 }

@@ -764,11 +764,13 @@ function grantDailyGiftIfAvailable() {
       types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
     };
 
-    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny);
+    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny, mon.caughtBall);
 
     evolvedRecord.uid = mon.uid;
     evolvedRecord.caughtAt = mon.caughtAt;
     evolvedRecord.locked = !!mon.locked;
+
+    evolvedRecord.caughtBall = mon.caughtBall ?? mon.ballKey ?? evolvedRecord.caughtBall ?? null;
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
@@ -1338,11 +1340,13 @@ function viewSavedRun(summary) {
       types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
     };
 
-    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny);
+    const evolvedRecord = await buildCaughtRecord(evolvedWild, spriteUrlResolved, !!mon.shiny, mon.caughtBall);
 
     evolvedRecord.uid = mon.uid;
     evolvedRecord.caughtAt = mon.caughtAt;
     evolvedRecord.locked = !!mon.locked;
+
+    evolvedRecord.caughtBall = mon.caughtBall ?? mon.ballKey ?? evolvedRecord.caughtBall ?? null;
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
@@ -1693,7 +1697,7 @@ function viewSavedRun(summary) {
     return s;
   }
 
-  async function buildCaughtRecord(w, spriteUrlResolved, isShiny = false) {
+  async function buildCaughtRecord(w, spriteUrlResolved, isShiny = false, caughtBallKey = null) {
     const learnset = w.learnsetMoves ?? [];
     let moves = pickUnique(learnset, 4).map(m => ({ kind: 'learnset', name: m }));
 
@@ -1760,6 +1764,8 @@ function viewSavedRun(summary) {
       ability,
       moves: moves.slice(0, 4),
 
+      caughtBall: caughtBallKey || w.caughtBall || w.ballKey || null,
+
       caughtAt: Date.now(),
     };
   }
@@ -1819,7 +1825,7 @@ function viewSavedRun(summary) {
           resetEncounterAssist();
           rollGrassSlots();
 
-          const record = await buildCaughtRecord(wild, spriteUrlResolved, isShiny);
+          const record = await buildCaughtRecord(wild, spriteUrlResolved, isShiny, ballKey);
 
           // ✅ Dex caught (base species, regardless of form)
 bumpDexCaughtFromAny(
@@ -2343,7 +2349,7 @@ bumpDexCaughtFromAny(
                         <div className="catchRateNow">Current catch rate: <b>{r.total} / 255</b></div>
                         {attackBonus > 0 ? <div>Move bonus: +{Math.round(attackBonus)}</div> : null}
                         {(wild.captureRate ?? 255) <= 100 && pityFails > 0 ? (
-                          <div>Pity: {r.pityRate} / 255 (max 100)</div>
+                          <div>Pity: {Math.round(r.pityRate)} / 255 (max 100)</div>
                         ) : null}
                         {wild.rarity ? (
                           <div style={{ marginTop: 6 }}>

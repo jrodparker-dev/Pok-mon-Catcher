@@ -15,7 +15,7 @@ export const FORME_SUFFIXES = [
   // common form groups
   'origin','therian','incarnate',
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
-  'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon',
+  'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon', 'rapidstrike',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
@@ -42,14 +42,14 @@ export const FORME_SUFFIXES = [
   'white','black', 'midnight', 'noice',
 
   // max / styles / oricorio
-  'gmax', 'sensu', 'pau', 'pompom',
+  'gmax', 'sensu', 'pau', 'pompom', 'blue', 'yellow', 'green', 
 
   // ogerpon masks + tera-ish strings you were using
   'hearthflametera', 'cornerstonetera', 'wellspringtera',
   'tealtera', 'wellspring', 'cornerstone', 'hearthflame',
 
   // genesect drives etc
-  'douse', 'shock',
+  'douse', 'shock', 'sandy', 'unbound',
 
   // poltchageist/sinistcha
   'artisan', 'masterpiece', 'antique',

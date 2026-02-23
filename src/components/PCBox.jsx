@@ -4,6 +4,21 @@ import RarityBadge from './RarityBadge.jsx';
 import { DELTA_BADGE, RARITIES } from '../rarity.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
 
+import pokeBallImg from '../assets/balls/pokeball.png'
+import greatBallImg from '../assets/balls/greatball.png'
+import ultraBallImg from '../assets/balls/ultraball.png'
+import masterBallImg from '../assets/balls/masterball.png'
+
+function ballImgFromKey(key) {
+  switch (key) {
+    case 'great': return greatBallImg;
+    case 'ultra': return ultraBallImg;
+    case 'master': return masterBallImg;
+    case 'poke':
+    default: return pokeBallImg;
+  }
+}
+
 function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
   const [tick, setTick] = React.useState(0);
   React.useEffect(() => {
@@ -298,10 +313,14 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
               {viewList.map(p => (
                   <button
                     key={p.uid ?? p.id}
-                    className="gridItem"
+                    className="gridItem hasBallWm"
                     onClick={() => setSelectedUid(p.uid)}
                     aria-label={`Inspect ${p.name}`}
-                    style={{ cursor: 'pointer', position: 'relative' }}
+                    style={{
+                      cursor: 'pointer',
+                      position: 'relative',
+                      '--ballWm': `url(${ballImgFromKey((p.caughtBall || p.ballKey || 'poke'))})`,
+                    }}
                   >
                     {/* Rarity badge (top-left) */}
                     {p.badge && (
