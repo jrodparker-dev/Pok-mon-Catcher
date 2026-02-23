@@ -16,6 +16,7 @@ export const FORME_SUFFIXES = [
   'origin','therian','incarnate',
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
   'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon', 'rapidstrike',
+  'four', 'fancy',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
