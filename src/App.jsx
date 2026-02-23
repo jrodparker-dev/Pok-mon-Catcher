@@ -116,6 +116,7 @@ export default function App() {
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [miniStartPendingSpawn, setMiniStartPendingSpawn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
   const [showNewRun, setShowNewRun] = useState(false);
@@ -125,10 +126,6 @@ export default function App() {
   const [hasActiveMini, setHasActiveMini] = useState(() => !!loadActiveMiniRun());
   const [openSummary, setOpenSummary] = useState(null);
   const [summaryDetail, setSummaryDetail] = useState(null); // { summaryId, uid, index }
-
-  const devCheat = useRef({bagTaps: 0, armed: false, lastTap: 0});
-
-
   // ✅ NEW: Pokedex modal state
   const [showDex, setShowDex] = useState(false);
 const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
@@ -1173,6 +1170,16 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     return mode === 'mini' && !!save?.miniRun;
   }
 
+
+  function closeSettings() {
+    setShowSettings(false);
+    // When a new mini-run starts, show settings first, then spawn once settings is closed.
+    if (inMiniRun() && miniStartPendingSpawn) {
+      setMiniStartPendingSpawn(false);
+      window.setTimeout(() => spawn(), 50);
+    }
+  }
+
   function allBallsEmpty(s) {
     const b = s?.balls ?? {};
     return (b.poke ?? 0) <= 0 && (b.great ?? 0) <= 0 && (b.ultra ?? 0) <= 0 && (b.master ?? 0) <= 0;
@@ -1250,7 +1257,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     setMode('mini');
     setSave(runSave);
     resetSoftState();
-    window.setTimeout(() => spawn(), 50);
+    setMiniStartPendingSpawn(true);
+    setShowSettings(true);
   }
 
   function resumeMiniRun() {
@@ -2043,16 +2051,17 @@ bumpDexCaughtFromAny(
             <span className="sparkle">✨</span>
             <span>{hudShinyPct.toFixed(2)}%</span>
           </div>
-
-          <button
-            className="btnSmall topEmojiBtn"
-            onClick={() => setShowSettings(true)}
-            aria-label="Open Settings"
-            title="Settings"
-            type="button"
-          >
-            ⚙️
-          </button>
+          {mode !== 'mini' ? (
+            <button
+              className="btnSmall topEmojiBtn"
+              onClick={() => setShowSettings(true)}
+              aria-label="Open Settings"
+              title="Settings"
+              type="button"
+            >
+              ⚙️
+            </button>
+          ) : null}
 
 
 <button
@@ -2125,18 +2134,6 @@ bumpDexCaughtFromAny(
   <button
     className="btn dexFab"
     onClick={() => {
-      // Secret dev cheat: tap backpack 5x then Pokédex
-      if (devCheat.current.armed) {
-        setSave(prev => {
-          const base = defaultSave();
-          const cur = { ...base, ...prev, balls: { ...base.balls, ...(prev?.balls ?? {}) } };
-          const nextBalls = { ...cur.balls };
-          for (const k of Object.keys(nextBalls)) nextBalls[k] = (nextBalls[k] ?? 0) + 99;
-          return { ...cur, balls: nextBalls };
-        });
-        devCheat.current.armed = false;
-        devCheat.current.bagTaps = 0;
-      }
       setShowDex(true);
     }}
     title="Pokédex"
@@ -2149,16 +2146,9 @@ bumpDexCaughtFromAny(
   <button
     className="btn backpackFab"
     onClick={() => {
-  // Secret dev cheat arming: tap backpack 5 times (within 3s between taps)
-  const now = Date.now();
-  if (now - (devCheat.current.lastTap || 0) > 3000) devCheat.current.bagTaps = 0;
-  devCheat.current.lastTap = now;
-  devCheat.current.bagTaps = (devCheat.current.bagTaps || 0) + 1;
-  if (devCheat.current.bagTaps >= 5) devCheat.current.armed = true;
-
-  grantDailyGiftIfAvailable();
-  setShowBackpack(v => !v);
-}}
+      grantDailyGiftIfAvailable();
+      setShowBackpack(v => !v);
+    }}
 
     title="Backpack"
     aria-label="Open Backpack"
@@ -2210,7 +2200,9 @@ bumpDexCaughtFromAny(
         )}
 
         <button className="btnSmall railBtn" onClick={() => setShowProfile(true)} title="Trainer profile" aria-label="Trainer profile" type="button">👤</button>
-        <button className="btnSmall railBtn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" type="button">⚙️</button>
+        {mode !== 'mini' ? (
+          <button className="btnSmall railBtn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" type="button">⚙️</button>
+        ) : null}
       </div>
 
 
@@ -2704,14 +2696,14 @@ bumpDexCaughtFromAny(
       </div>
 
       {showSettings ? (
-        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Settings" onClick={() => setShowSettings(false)}>
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Settings" onClick={closeSettings}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
               <div>
                 <div className="modalTitle">Settings</div>
                 <div className="modalSub">Difficulty & rewards</div>
               </div>
-              <button className="btnGhost" onClick={() => setShowSettings(false)} aria-label="Close settings" title="Close" type="button">✕</button>
+              <button className="btnGhost" onClick={closeSettings} aria-label="Close settings" title="Close" type="button">✕</button>
             </div>
 
             <div className="settingsGroup">
