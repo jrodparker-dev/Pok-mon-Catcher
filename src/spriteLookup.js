@@ -43,6 +43,7 @@ export const FORME_SUFFIXES = [
 
   // max / styles / oricorio
   'gmax', 'sensu', 'pau', 'pompom', 'blue', 'yellow', 'green', 
+  'starter',
 
   // ogerpon masks + tera-ish strings you were using
   'hearthflametera', 'cornerstonetera', 'wellspringtera',
