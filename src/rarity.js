@@ -53,6 +53,7 @@ export function describeBuff(buff) {
   if (buff.kind === 'rarity-active') return `+${buff.pct}% rarity (active)`;
   if (buff.kind === 'rarity-team') return `+${buff.pct}% rarity (team)`;
   if (buff.kind === 'ko-ball-active') return `${buff.pct}% ball on KO (active)`;
+  if (buff.kind === 'ko-ball-team') return `${buff.pct}% ball on KO (team)`;
   if (buff.kind === 'custom-move') return `Custom Move`;
   if (buff.kind === 'chosen-ability') return `Chosen Ability`;
   if (buff.kind === 'stat-all') return `+${buff.amount} all stats`;
