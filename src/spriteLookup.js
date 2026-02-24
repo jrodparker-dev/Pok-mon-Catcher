@@ -17,7 +17,7 @@ export const FORME_SUFFIXES = [
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
   'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon', 'rapidstrike',
   'four', 'fancy', 'whitestriped', 'bluestriped', 'threesegment',
-  'terastal', 'pirouette',
+  'terastal', 'pirouette', 'gorging',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
@@ -52,7 +52,7 @@ export const FORME_SUFFIXES = [
   'tealtera', 'wellspring', 'cornerstone', 'hearthflame',
 
   // genesect drives etc
-  'douse', 'shock', 'sandy', 'unbound',
+  'douse', 'shock', 'sandy', 'unbound', 'burn',
 
   // poltchageist/sinistcha
   'artisan', 'masterpiece', 'antique',
