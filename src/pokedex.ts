@@ -3824,8 +3824,7 @@ export const Pokedex: import('../sim/dex-species').SpeciesDataTable = {
 		num: 185,
 		name: "Sudowoodo",
 		types: ["Rock"],
-		baseStats: {hp: 70, atk: 100, def: 115, spa: 30, spd: 65, spe: 30},
-		//baseStats: { hp: 101, atk: 131, def: 146, spa: 61, spd: 96, spe: 65 },
+		baseStats: { hp: 101, atk: 131, def: 146, spa: 61, spd: 96, spe: 65 },
 		abilities: { 0: "Sturdy", 1: "Rock Head", H: "Rattled" },
 		heightm: 1.2,
 		weightkg: 38,
@@ -16454,8 +16453,7 @@ castformmega: {
 		name: "Glastrier",
 		types: ["Ice"],
 		gender: "N",
-		baseStats: {hp: 100, atk: 145, def: 130, spa: 65, spd: 110, spe: 30},
-		//baseStats: { hp: 103, atk: 148, def: 133, spa: 68, spd: 115, spe: 33 },
+		baseStats: { hp: 103, atk: 148, def: 133, spa: 68, spd: 115, spe: 33 },
 		abilities: { 0: "Chilling Neigh" },
 		heightm: 2.2,
 		weightkg: 800,
@@ -17953,7 +17951,7 @@ castformmega: {
 		name: "Iron Moth",
 		types: ["Fire", "Poison"],
 		gender: "N",
-		baseStats: { hp: 80, atk: 80, def: 80, spa: 80, spd: 80, spe: 80 },
+		baseStats: { hp: 80, atk: 70, def: 60, spa: 140, spd: 110, spe: 110 },
 		abilities: { 0: "Quark Drive" },
 		heightm: 1.2,
 		weightkg: 36,
@@ -20597,7 +20595,3 @@ oinkolognemega: {
 
 
 };
-
-export const pokedex = Pokedex;
-export default Pokedex;
-
