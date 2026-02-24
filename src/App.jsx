@@ -477,7 +477,21 @@ function grantDailyGiftIfAvailable() {
     });
   }
 
-  function releasePokemon(uid) {
+  
+  function isLegendaryRarity(r) {
+    // Accept a variety of shapes (string keys/labels, objects, legacy fields)
+    if (!r) return false;
+    if (typeof r === 'string') return r.trim().toLowerCase() === 'legendary';
+    if (typeof r === 'object') {
+      const key = (r.key ?? r.rarity ?? r.id ?? r.label ?? '').toString().trim().toLowerCase();
+      if (key === 'legendary') return true;
+      const label = (r.label ?? '').toString().trim().toLowerCase();
+      if (label === 'legendary') return true;
+    }
+    return false;
+  }
+
+function releasePokemon(uid) {
     setSave(prev => {
       const caught = Array.isArray(prev.caught) ? prev.caught : [];
       const idx = caught.findIndex(m => m.uid === uid);
@@ -502,7 +516,7 @@ function grantDailyGiftIfAvailable() {
       const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
       // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-      const fusionTokens = (String(caught[idx]?.rarity || '').toLowerCase() === 'legendary')
+      const fusionTokens = (isLegendaryRarity(caught[idx]?.rarity))
         ? ((prev.fusionTokens ?? 0) + 1)
         : (prev.fusionTokens ?? 0);
       const pendingFusionToken = !!(prev.pendingFusionToken);
@@ -548,7 +562,7 @@ function grantDailyGiftIfAvailable() {
         }
         removed++;
         // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-        if (String(m?.rarity || '').toLowerCase() === 'legendary') fusionTokens += 1;
+        if (isLegendaryRarity(m?.rarity)) fusionTokens += 1;
 
         if (mode !== 'mini' && curSettings.ballOnRelease) {
           const ballKey = pickRandomBallKey();
