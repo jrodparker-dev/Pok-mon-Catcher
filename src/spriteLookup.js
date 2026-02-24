@@ -17,6 +17,7 @@ export const FORME_SUFFIXES = [
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
   'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon', 'rapidstrike',
   'four', 'fancy', 'whitestriped', 'bluestriped', 'threesegment',
+  'terastal',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
@@ -80,8 +81,9 @@ export function getSpriteId(mon) {
   const sources = [
     mon?.formId,
     mon?.speciesId,
-    mon?.name,
     mon?.dexId,
+    mon?.name,
+
     mon?.id,
   ];
 

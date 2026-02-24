@@ -3,6 +3,7 @@ import PokemonDetail from './PokemonDetail.jsx';
 import RarityBadge from './RarityBadge.jsx';
 import { DELTA_BADGE, RARITIES } from '../rarity.js';
 import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
+import { getEvolutionOptions } from '../evolution.js';
 
 import pokeBallImg from '../assets/balls/pokeball.png'
 import greatBallImg from '../assets/balls/greatball.png'
@@ -76,7 +77,7 @@ function savePCBoxPrefs(prefs) {
     window.localStorage.setItem(PCBOX_PREFS_KEY, JSON.stringify(prefs || {}));
   } catch {}
 }
-export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany }) {
+export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse }) {
   const prefs = useMemo(() => loadPCBoxPrefs(), []);
   const [selectedUid, setSelectedUid] = useState(null);
   const [query, setQuery] = useState(() => String(prefs.query ?? ''));
@@ -86,6 +87,10 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
   const [teamOnly, setTeamOnly] = useState(!!prefs.teamOnly);
   const [sortKey, setSortKey] = useState(() => String(prefs.sortKey ?? 'dex'));
   const [sortDir, setSortDir] = useState(() => (prefs.sortDir === 'desc' ? 'desc' : 'asc'));
+  const [buffFilter, setBuffFilter] = useState(() => String(prefs.buffFilter ?? ''));
+
+  const [fuseBaseUid, setFuseBaseUid] = useState(null);
+  const [fusePickUid, setFusePickUid] = useState(null);
 
   useEffect(() => {
     savePCBoxPrefs({
@@ -96,8 +101,9 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
       teamOnly,
       sortKey,
       sortDir,
+      buffFilter,
     });
-  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir]);
+  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, buffFilter]);
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
 
@@ -109,6 +115,18 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
     if (!selectedUid) return null;
     return (caughtList ?? []).find(p => p.uid === selectedUid) || null;
   }, [caughtList, selectedUid]);
+
+
+  const fuseBase = useMemo(() => {
+    if (!fuseBaseUid) return null;
+    return (Array.isArray(caughtList) ? caughtList : []).find(p => p && (p.uid === fuseBaseUid)) || null;
+  }, [caughtList, fuseBaseUid]);
+
+  const fusePick = useMemo(() => {
+    if (!fusePickUid) return null;
+    return (Array.isArray(caughtList) ? caughtList : []).find(p => p && (p.uid === fusePickUid)) || null;
+  }, [caughtList, fusePickUid]);
+
 
   const viewList = useMemo(() => {
     const list = Array.isArray(caughtList) ? caughtList : [];
@@ -136,6 +154,13 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
 
       // Delta checkbox requires delta typing
       if (rarityChecks?.delta && !isDelta) return false;
+
+      // Buff filter (single-select)
+      if (buffFilter) {
+        const bs = Array.isArray(p.buffs) ? p.buffs : (p.buff ? [p.buff] : []);
+        const has = bs.some(b => String(b?.kind || '').toLowerCase() === String(buffFilter).toLowerCase());
+        if (!has) return false;
+      }
 
       if (!q) return true;
       const name = String(p.name || '').toLowerCase();
@@ -226,6 +251,33 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
 
           </div>
 
+          {fuseBaseUid && fuseBase ? (
+            <div className="fusionBar" role="region" aria-label="Fusion selection">
+              <div className="fusionBarLeft">
+                <div className="fusionBarTitle">Fusion Pokémon</div>
+                <div className="fusionBarMon">
+                  <SpriteWithFallback mon={fuseBase} className="fusionBarSprite" alt={fuseBase.name} />
+                  <div className="fusionBarName">
+                    <div style={{ fontWeight: 900 }}>{fuseBase.name}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>Select a second Pokémon to fuse with</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                className="btnSmall"
+                type="button"
+                onClick={() => {
+                  if (onCancelFuse) onCancelFuse();
+                  setFuseBaseUid(null);
+                  setFusePickUid(null);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
+
+
           <div className="pcControls" aria-label="PC sorting and filtering">
               <input
                 className="pcSearch"
@@ -303,6 +355,32 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                 >
                   {sortDir === 'asc' ? '↑' : '↓'}
                 </button>
+
+            <div className="pcSortGroup" aria-label="Buff filter">
+              <select
+                className="pcSelect"
+                value={buffFilter}
+                onChange={(e) => setBuffFilter(e.target.value)}
+                aria-label="Filter by buff"
+                title="Filter by buff"
+              >
+                <option value="">All buffs</option>
+                <option value="rarity-team">Rarity (team)</option>
+                <option value="rarity-active">Rarity (active)</option>
+                <option value="shiny-team">Shiny (team)</option>
+                <option value="shiny-active">Shiny (active)</option>
+                <option value="catch-team">Catch (team)</option>
+                <option value="catch-active">Catch (active)</option>
+                <option value="ko-ball-active">Ball on KO (active)</option>
+                <option value="custom-move">Custom Move</option>
+                <option value="chosen-ability">Chosen Ability</option>
+                <option value="stat-all">All stats</option>
+                <option value="bst-to-600">BST → 600</option>
+                <option value="reroll-stats">Reroll stats</option>
+                <option value="stat-mult">Double low stat</option>
+              </select>
+            </div>
+
               </div>
             </div>
 
@@ -313,8 +391,21 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
               {viewList.map(p => (
                   <button
                     key={p.uid ?? p.id}
-                    className="gridItem hasBallWm"
-                    onClick={() => setSelectedUid(p.uid)}
+                    className={`gridItem hasBallWm ${p?.isFusion ? "fusionOutline" : ""}`}
+                    onClick={() => {
+                      if (fuseBaseUid) {
+                        if (p.uid === fuseBaseUid) return;
+                        // Only allow fully evolved Pokémon to be selected for fusion.
+                        const evoOpts = getEvolutionOptions(p.formId ?? p.speciesId ?? p.name);
+                        if (Array.isArray(evoOpts) && evoOpts.length > 0) {
+                          alert('Only fully evolved Pokémon can be fused.');
+                          return;
+                        }
+                        setFusePickUid(p.uid);
+                        return;
+                      }
+                      setSelectedUid(p.uid);
+                    }}
                     aria-label={`Inspect ${p.name}`}
                     style={{
                       cursor: 'pointer',
@@ -334,8 +425,11 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
                       </div>
                     )}
 
-                    {p.shiny ? (
-                      <div className="gridShinyCorner" title="Shiny!">✨</div>
+                    {(p.shiny || (Array.isArray(p.buffs) && p.buffs.some(b => b?.superRare))) ? (
+                      <div className="gridTopRight">
+                        {p.shiny ? <div className="gridShinyCorner" title="Shiny!">✨</div> : null}
+                        {(Array.isArray(p.buffs) && p.buffs.some(b => b?.superRare)) ? <div className="gridSuperRareCorner" title="Super rare buff!">✦</div> : null}
+                      </div>
                     ) : null}
 
                     <SpriteWithFallback
@@ -367,6 +461,48 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
         </div>
       </div>
 
+      {(fuseBaseUid && fuseBase && fusePickUid && fusePick) ? (
+        <div className="pcConfirmOverlay" role="dialog" aria-modal="true">
+          <div className="pcConfirmCard">
+            <div className="pcConfirmTitle">Confirm Fusion</div>
+            <div className="pcConfirmText">
+              Do you want to fuse <b>{fuseBase.name}</b> with <b>{fusePick.name}</b>?
+            </div>
+            <div className="pcConfirmSprites">
+              <SpriteWithFallback mon={fuseBase} className="pcConfirmSprite" alt={fuseBase.name} />
+              <div className="pcConfirmPlus">+</div>
+              <SpriteWithFallback mon={fusePick} className="pcConfirmSprite" alt={fusePick.name} />
+            </div>
+            <div className="pcConfirmBtns">
+              <button
+                className="btnSmall"
+                type="button"
+                onClick={() => {
+                  if (onCancelFuse) onCancelFuse();
+                  setFuseBaseUid(null);
+                  setFusePickUid(null);
+                }}
+              >
+                Cancel (refund)
+              </button>
+              <button
+                className="btnSmall"
+                type="button"
+                onClick={() => {
+                  if (onConfirmFuse) onConfirmFuse(fuseBaseUid, fusePickUid);
+                  setFuseBaseUid(null);
+                  setFusePickUid(null);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+
+
       {selected && (
         <PokemonDetail
           mon={selected}
@@ -378,6 +514,8 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
           onReplaceMove={onReplaceMove}
           onRelease={onRelease}
           onToggleLock={onToggleLock}
+          fusionTokens={fusionTokens}
+          onStartFuse={onStartFuse ? (uid) => { onStartFuse(uid); setFuseBaseUid(uid); setFusePickUid(null); } : null}
         />
       )}
     </>

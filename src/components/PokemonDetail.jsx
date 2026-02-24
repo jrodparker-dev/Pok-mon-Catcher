@@ -55,7 +55,7 @@ function SpriteWithFallback({ mon, className }) {
   );
 }
 
-export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock }) {
+export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onStartFuse, fusionTokens }) {
   const [canEvolve, setCanEvolve] = useState(false);
   const [checkingEvo, setCheckingEvo] = useState(true);
   const [evoOptions, setEvoOptions] = useState([]);
@@ -128,6 +128,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
               </div>
               <span className="modalTitleText">#{mon.dexId ?? mon.id} {cap(mon.name)}</span>
               {mon.shiny ? <span className="modalTitleIcon" aria-label="Shiny">✨</span> : null}
+              {(Array.isArray(mon.buffs) && mon.buffs.some(b => b?.superRare)) ? <span className="modalTitleIcon superRareSparkle" aria-label="Super rare buff">✦</span> : null}
               <span className="modalTitleIcon">
                 <PokeballIcon variant={(mon.caughtBall || mon.ballKey || "poke")} size={18} />
               </span>
@@ -180,6 +181,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
                 const final = mon.finalStats?.[k];
                 const changed =
                   typeof base === 'number' && typeof final === 'number' && base !== final;
+                const superBlue = Array.isArray(mon.superChangedStats) && mon.superChangedStats.includes(k);
 
                 return (
                   <div
@@ -199,7 +201,15 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
                       style={{
                         fontWeight: 900,
                         fontSize: 16,
-                        color: changed ? '#facc15' : 'rgba(229,231,235,.95)', // yellow if buffed
+                        color: (() => {
+                          const isFusion = !!mon.isFusion;
+                          const fromOther = isFusion && Array.isArray(mon?.fusionMeta?.statsFromOther) && mon.fusionMeta.statsFromOther.includes(k);
+                          if (fromOther) return '#a3e635';
+                          // For non-fusion, keep existing behavior
+                          if (changed) return superBlue ? '#60a5fa' : '#facc15';
+                          // Fusion base-body stats should be white
+                          return 'rgba(255,255,255,.95)';
+                        })(), // blue if super-rare changed, else yellow
                       }}
                     >
                       {final ?? '-'}
@@ -395,9 +405,31 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
             </button>
           ) : null}
 
+{onStartFuse ? (
+            <button
+              className="btnSmall"
+              disabled={checkingEvo || canEvolve}
+              onClick={() => {
+                if (checkingEvo) { alert('Checking evolution…'); return; }
+                if (canEvolve) { alert('Only fully evolved Pokémon can be fused.'); return; }
+                const have = Number(fusionTokens ?? 0) || 0;
+                if (have <= 0) { alert('You have no Fusion Tokens. Release a Legendary-tier Pokémon to earn one.'); return; }
+                const ok = window.confirm('Use 1 Fusion Token to start fusing this Pokémon? (You can cancel and refund it before confirming the fusion.)');
+                if (!ok) return;
+                onStartFuse(mon.uid);
+                onClose();
+              }}
+              type="button"
+              title={canEvolve ? "Only fully evolved Pokémon can be fused." : "Fuse this Pokémon with another (costs 1 Fusion Token)"}
+            >
+              Fuse
+            </button>
+          ) : null}
+
 {onRelease ? (
             <button
               className="btnSmall"
+              disabled={!!mon?.locked}
               onClick={() => {
                 if (mon?.locked) { alert('This Pokémon is locked and cannot be released unless you unlock it (or do a full reset from scratch).'); return; }
                 const ok = window.confirm('Release this Pokémon?');

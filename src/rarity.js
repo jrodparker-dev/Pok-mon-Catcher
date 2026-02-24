@@ -45,6 +45,7 @@ export function describeBuff(buff) {
   if (!buff) return '';
   if (buff.kind === 'stat') return `+${buff.amount} ${buff.stat.toUpperCase()}`;
   if (buff.kind === 'stat2') return `+${buff.amount} ${buff.stats[0].toUpperCase()} +${buff.amount} ${buff.stats[1].toUpperCase()}`;
+  if (buff.kind === 'stat-mult') return `×${(buff.mult ?? 2).toFixed(1)} ${buff.stat.toUpperCase()}`;
   if (buff.kind === 'catch-active') return `+${buff.pct}% catch (active)`;
   if (buff.kind === 'catch-team') return `+${buff.pct}% catch (team)`;
   if (buff.kind === 'shiny-active') return `×${(buff.mult ?? 1).toFixed(2)} shiny (active)`;
@@ -179,18 +180,130 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     usedKinds.add(picked.kind);
   }
 
-  // 4) Super-rare bonus buff (1% chance) - can exceed normal buff limits
-  if (rng() < 0.01) {
+  // 4) Super-rare bonus buff (0.5% chance) - can exceed normal buff limits
+  if (rng() < 0.005) {
     const superPool = [
-      { kind: 'stat-all', amount: 15 },
-      { kind: 'bst-to-600' },
-      { kind: 'stat', stat: pickOne(STAT_KEYS, rng), amount: randInt(10, 50, rng) },
-      { kind: 'reroll-stats', minBST: 500, maxBST: 650 },
-      { kind: 'boost-all-active', shinyPct: 5, catchPct: 25, rarityPct: 15 },
+      { kind: 'stat-all', amount: 15, superRare: true },
+      { kind: 'bst-to-600', superRare: true },
+      // Always +50 to a random stat; 20% chance to also +50 a second (different) stat
+      { kind: 'super-stat-50', amount: 50, superRare: true },
+      { kind: 'reroll-stats', minBST: 500, maxBST: 650, superRare: true },
+      { kind: 'boost-all-active', shinyPct: 5, catchPct: 25, rarityPct: 15, superRare: true },
+      // Double a random stat if its BASE stat is < 100
+      { kind: 'double-stat-if-low', mult: 2, superRare: true },
     ];
     const chosen = superPool[Math.floor(rng() * superPool.length)];
-    buffs.push(JSON.parse(JSON.stringify(chosen)));
+
+    if (chosen.kind === 'super-stat-50') {
+      const s1 = pickOne(STAT_KEYS, rng);
+      buffs.push({ kind: 'stat', stat: s1, amount: 50, superRare: true });
+      if (rng() < 0.20) {
+        let s2 = pickOne(STAT_KEYS, rng);
+        while (s2 === s1) s2 = pickOne(STAT_KEYS, rng);
+        buffs.push({ kind: 'stat', stat: s2, amount: 50, superRare: true });
+      }
+    } else if (chosen.kind === 'double-stat-if-low') {
+      const base = pokemonData?.baseStats ?? pokemonData?.stats ?? {};
+      const candidates = STAT_KEYS.filter(k => typeof base?.[k] === 'number' && base[k] < 100);
+      if (candidates.length) {
+        const stat = pickOne(candidates, rng);
+        buffs.push({ kind: 'stat-mult', stat, mult: 2, superRare: true, onlyIfBaseBelow: 100 });
+      } else {
+        // no eligible stats; fall back to a tame super-rare buff
+        buffs.push({ kind: 'stat-all', amount: 15, superRare: true });
+      }
+    } else {
+      buffs.push(JSON.parse(JSON.stringify(chosen)));
+    }
   }
 
   return buffs;
+}
+
+
+/**
+ * Fusion-only buffs (separate table from normal rarity buffs).
+ * Uses the user-provided spreadsheet probabilities and magnitudes.
+ */
+// Fusion-only buff rolling. Optionally enforce a minimum buff count.
+export function rollFusionBuffs(rarityKey, pokemonData, rng = Math.random, minCount = 0) {
+  const buffs = [];
+  const r = String(rarityKey || '').toLowerCase();
+
+  // Amount of buffs distribution (must be at least 1)
+  function rollCount() {
+    const x = rng();
+    if (r === 'common') return (x < 0.35) ? 1 : 2;
+    if (r === 'uncommon') return (x < 0.20) ? 1 : 2;
+    if (r === 'rare') {
+      if (x < 0.15) return 1;
+      if (x < 0.40) return 2; // 0.15 + 0.25
+      return 3;
+    }
+    // legendary
+    if (x < 0.05) return 1;
+    if (x < 0.15) return 2; // 0.05 + 0.10
+    if (x < 0.65) return 3; // + 0.50
+    return 4; // 0.35
+  }
+
+  const rolled = rollCount();
+  const count = Math.max(rolled, Math.max(0, minCount | 0));
+
+  // Table values
+  const oneStatAmt = (r === 'common') ? 15 : (r === 'uncommon') ? 25 : (r === 'rare') ? 35 : 45;
+  const twoStatAmt = (r === 'common') ? 10 : (r === 'uncommon') ? 15 : (r === 'rare') ? 20 : 30;
+
+  const catchActiveMin = (r === 'common') ? 10 : (r === 'uncommon') ? 20 : (r === 'rare') ? 30 : 40;
+  const catchActiveMax = (r === 'common') ? 20 : (r === 'uncommon') ? 30 : (r === 'rare') ? 40 : 50;
+
+  const shinyActiveMult = (r === 'common') ? 2 : (r === 'uncommon') ? 3 : (r === 'rare') ? 4 : 5;
+  const rarityActivePct = (r === 'common') ? 5 : (r === 'uncommon') ? 10 : (r === 'rare') ? 15 : 20;
+
+  const koBallActivePct = (r === 'common') ? 25 : (r === 'uncommon') ? 35 : (r === 'rare') ? 50 : 80;
+  const koBallTeamPct = (r === 'common') ? 15 : (r === 'uncommon') ? 25 : (r === 'rare') ? 40 : 60;
+
+  const catchTeamPct = (r === 'common') ? 5 : (r === 'uncommon') ? 10 : (r === 'rare') ? 15 : 20;
+
+  const shinyTeamMult = (r === 'uncommon') ? 1.25 : (r === 'rare') ? 1.5 : (r === 'legendary') ? 2 : null;
+  const rarityTeamPct = (r === 'uncommon') ? 5 : (r === 'rare') ? 8 : (r === 'legendary') ? 10 : null;
+
+  // Available buff kinds (fusion list)
+  const pool = [];
+  pool.push(() => ({ kind: 'stat', stat: pickOne(STAT_KEYS, rng), amount: oneStatAmt }));
+  pool.push(() => {
+    const [a, b] = pickTwoStats(rng);
+    return { kind: 'stat2', stats: [a, b], amount: twoStatAmt };
+  });
+  pool.push(() => ({ kind: 'catch-active', pct: randInt(catchActiveMin, catchActiveMax, rng) }));
+  pool.push(() => ({ kind: 'shiny-active', mult: shinyActiveMult }));
+  pool.push(() => ({ kind: 'rarity-active', pct: rarityActivePct }));
+  pool.push(() => ({ kind: 'ko-ball-active', pct: koBallActivePct }));
+  pool.push(() => ({ kind: 'ko-ball-team', pct: koBallTeamPct }));
+  pool.push(() => ({ kind: 'catch-team', pct: catchTeamPct }));
+  if (shinyTeamMult) pool.push(() => ({ kind: 'shiny-team', mult: shinyTeamMult }));
+  if (rarityTeamPct) pool.push(() => ({ kind: 'rarity-team', pct: rarityTeamPct }));
+
+  // Roll without duplicates by kind (prefer variety)
+  const used = new Set();
+  for (let i = 0; i < count; i++) {
+    // attempt a few times to avoid duplicates
+    let picked = null;
+    for (let tries = 0; tries < 8; tries++) {
+      const maker = pool[Math.floor(rng() * pool.length)];
+      const b = maker();
+      if (!b?.kind) continue;
+      if (used.has(b.kind)) continue;
+      picked = b;
+      break;
+    }
+    if (!picked) {
+      const maker = pool[Math.floor(rng() * pool.length)];
+      picked = maker();
+    }
+    if (picked?.kind) used.add(picked.kind);
+    buffs.push(picked);
+  }
+
+  return buffs.filter(Boolean);
 }

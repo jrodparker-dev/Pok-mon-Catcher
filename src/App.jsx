@@ -27,7 +27,7 @@ const MAX_SHINY_CHANCE = 0.05; // safety cap (5%)
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
 
-import { pickWeightedRarity, rollBuffs, describeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
+import { pickWeightedRarity, rollBuffs, rollFusionBuffs, describeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
@@ -501,11 +501,16 @@ function grantDailyGiftIfAvailable() {
 
       const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
+      const fusionTokens = (mode !== 'mini' && String(caught[idx]?.rarity || '').toLowerCase() === 'legendary')
+        ? ((prev.fusionTokens ?? 0) + 1)
+        : (prev.fusionTokens ?? 0);
+      const pendingFusionToken = !!(prev.pendingFusionToken);
+
       const nextCaught = caught.slice(0, idx).concat(caught.slice(idx + 1));
       const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => x !== uid) : [];
       const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
 
-      return { ...prev, balls, moveTokens, caught: nextCaught, teamUids, activeTeamUid };
+      return { ...prev, balls, moveTokens, fusionTokens, pendingFusionToken, caught: nextCaught, teamUids, activeTeamUid };
     });
   }
 
@@ -523,6 +528,8 @@ function grantDailyGiftIfAvailable() {
 
       const balls = { ...(prev.balls ?? {}) };
       let moveTokens = prev.moveTokens ?? 0;
+      let fusionTokens = prev.fusionTokens ?? 0;
+      const pendingFusionToken = !!(prev.pendingFusionToken);
 
       const remaining = [];
       let removed = 0;
@@ -539,6 +546,7 @@ function grantDailyGiftIfAvailable() {
           continue;
         }
         removed++;
+        if (mode !== 'mini' && String(m?.rarity || '').toLowerCase() === 'legendary') fusionTokens += 1;
 
         if (mode !== 'mini' && curSettings.ballOnRelease) {
           const ballKey = pickRandomBallKey();
@@ -559,9 +567,253 @@ function grantDailyGiftIfAvailable() {
         setMessage(removedLocked > 0 ? `Released ${removed} Pokémon. (${removedLocked} locked skipped.)` : `Released ${removed} Pokémon.`);
       }
 
-      return { ...prev, balls, moveTokens, caught: remaining, teamUids, activeTeamUid };
+      return { ...prev, balls, moveTokens, fusionTokens, pendingFusionToken, caught: remaining, teamUids, activeTeamUid };
     });
   }
+
+  function startFusion(uid) {
+    setSave(prev => {
+      const have = Number(prev.fusionTokens ?? 0) || 0;
+      if (have <= 0) return prev;
+      // consume 1 token; refundable until confirm
+      return { ...prev, fusionTokens: have - 1, pendingFusionToken: true };
+    });
+  }
+
+  function cancelFusion() {
+    setSave(prev => {
+      if (!prev.pendingFusionToken) return prev;
+      return { ...prev, fusionTokens: (prev.fusionTokens ?? 0) + 1, pendingFusionToken: false };
+    });
+  }
+
+  function confirmFusion(uidA, uidB) {
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const a = caught.find(m => m?.uid === uidA);
+      const b = caught.find(m => m?.uid === uidB);
+      if (!a || !b) return { ...prev, pendingFusionToken: false };
+      // Only allow fully evolved Pokémon to fuse; refund token if invalid.
+      try {
+        const evoA = getEvolutionOptions(a.formId ?? a.speciesId ?? a.name);
+        const evoB = getEvolutionOptions(b.formId ?? b.speciesId ?? b.name);
+        if ((Array.isArray(evoA) && evoA.length > 0) || (Array.isArray(evoB) && evoB.length > 0)) {
+          return { ...prev, fusionTokens: (prev.fusionTokens ?? 0) + 1, pendingFusionToken: false };
+        }
+      } catch {}
+
+      if (a.uid === b.uid) return { ...prev, pendingFusionToken: false };
+
+      // Determine offspring shiny chance
+      const aSh = !!a.shiny;
+      const bSh = !!b.shiny;
+      let shinyChance = 0.05;
+      if (aSh && bSh) shinyChance = 0.50;
+      else if (aSh || bSh) shinyChance = 0.25;
+      const isShiny = Math.random() < shinyChance;
+
+      // Rarity inheritance
+      const tiers = ['common','uncommon','rare','legendary'];
+      const aR = String(a.rarity || '').toLowerCase();
+      const bR = String(b.rarity || '').toLowerCase();
+      let rarity = aR;
+      let rolledUpgrade = false;
+      let cannotUpgradeBonus = false;
+      if (aR === bR) {
+        rarity = aR;
+        const idx = tiers.indexOf(rarity);
+        if (Math.random() < 0.05) {
+          rolledUpgrade = true;
+          if (idx >= 0 && idx < tiers.length - 1) {
+            rarity = tiers[idx + 1];
+          } else {
+            // can't increase (already top tier) => +10 to all base stats
+            cannotUpgradeBonus = true;
+            rarity = aR;
+          }
+        }
+      } else {
+        // Different rarities:
+        // 50% chance to become the highest rarity of the two,
+        // 50% chance to become one tier lower than the highest.
+        const ai = Math.max(0, tiers.indexOf(aR));
+        const bi = Math.max(0, tiers.indexOf(bR));
+        const hi = Math.max(ai, bi);
+        const lo = Math.max(0, hi - 1);
+        rarity = (Math.random() < 0.5) ? tiers[hi] : tiers[lo];
+      }
+
+      // Choose orientation to maximize BST (base provides typing + 2 moves + 3 stats)
+      function bestSplitStats(baseMon, otherMon) {
+        const keys = ['hp','atk','def','spa','spd','spe'];
+        const A = baseMon.baseStats || {};
+        const B = otherMon.baseStats || {};
+        // pick 3 stats for A with largest (A-B)
+        const diffs = keys.map(k => ({ k, d: (A[k] ?? 0) - (B[k] ?? 0) }));
+        diffs.sort((x,y) => y.d - x.d);
+        const takeA = new Set(diffs.slice(0,3).map(x => x.k));
+        const out = {};
+        for (const k of keys) out[k] = takeA.has(k) ? (A[k] ?? 0) : (B[k] ?? 0);
+        const bst = keys.reduce((t,k) => t + (out[k] ?? 0), 0);
+        return { baseUid: baseMon.uid, otherUid: otherMon.uid, takeA, out, bst };
+      }
+
+      const opt1 = bestSplitStats(a, b);
+      const opt2 = bestSplitStats(b, a);
+      let base = a, other = b, split = opt1;
+      if (opt2.bst > opt1.bst || (opt2.bst === opt1.bst && Math.random() < 0.5)) {
+        base = b; other = a; split = opt2;
+      }
+
+      // Build fused baseStats
+      let fusedBaseStats = { ...split.out };
+      if (cannotUpgradeBonus) {
+        for (const k of ['hp','atk','def','spa','spd','spe']) {
+          fusedBaseStats[k] = (fusedBaseStats[k] ?? 0) + 10;
+        }
+      }
+
+      // Moves: 2 from base, 2 from other
+      function pickMoves(mon, n) {
+        const ms = Array.isArray(mon.moves) ? mon.moves : [];
+        const copy = ms.slice();
+        for (let i = copy.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+        }
+        return copy.slice(0, n);
+      }
+      const m1 = pickMoves(base, 2);
+      const m2 = pickMoves(other, 2);
+      const fusedMoves = [...m1, ...m2].slice(0, 4);
+
+      // Ability from other
+      const ability = other.ability ?? base.ability;
+
+      // Typing rules:
+      // - If either parent is delta, offspring is delta and rolls a single new type (delta ignores the "one type from each parent" rule).
+      // - Otherwise, offspring always becomes a NEW dual type by taking 1 random type from each parent.
+      const aTypes = Array.isArray(a.types) ? a.types.map(t => String(t).toLowerCase()) : [];
+      const bTypes = Array.isArray(b.types) ? b.types.map(t => String(t).toLowerCase()) : [];
+      const hasDeltaParent = !!(a.isDelta || b.isDelta || a.delta || b.delta);
+      const isDelta = hasDeltaParent ? true : false;
+
+      let types = [];
+      if (isDelta) {
+        const union = Array.from(new Set([...aTypes, ...bTypes]));
+        const rolled = rollDeltaTypes(union, Math.random);
+        const t = Array.isArray(rolled) && rolled.length ? rolled[0] : 'normal';
+        types = [t];
+      } else {
+        const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        const fallbackTypes = ['normal','fire','water','electric','grass','ice','fighting','poison','ground','flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
+        const t1 = aTypes.length ? pickOne(aTypes) : pickOne(fallbackTypes);
+        let t2 = bTypes.length ? pickOne(bTypes) : pickOne(fallbackTypes);
+
+        if (t2 === t1) {
+          const altB = bTypes.filter(t => t !== t1);
+          const altA = aTypes.filter(t => t !== t1);
+          if (altB.length) t2 = pickOne(altB);
+          else if (altA.length) t2 = pickOne(altA);
+          else {
+            // last resort: pick any type different from t1
+            const pool = fallbackTypes.filter(t => t !== t1);
+            t2 = pickOne(pool);
+          }
+        }
+        types = [t1, t2];
+      }
+
+      // Roll buffs for the fused mon based on resulting rarity
+      const rollBase = {
+        baseStats: fusedBaseStats,
+        rarity,
+      };
+      // Fusion buff floor: result must have at least (max(parentBuffs) - 1) buffs.
+      const aBuffs = Array.isArray(a.buffs) ? a.buffs.length : 0;
+      const bBuffs = Array.isArray(b.buffs) ? b.buffs.length : 0;
+      const minFusionBuffs = Math.max(1, Math.max(aBuffs, bBuffs) - 1);
+      // Fusion should ALWAYS keep any super-rare buffs from either parent.
+      // For super-rare buffs that affect stats, we keep the icon/metadata but do not re-apply their stat effects
+      // (fusion still only takes 3 stats from each parent). Exception: bst-to-600 must ensure the fusion reaches 600 BST.
+      const parentBuffsA = Array.isArray(a.buffs) ? a.buffs : [];
+      const parentBuffsB = Array.isArray(b.buffs) ? b.buffs : [];
+      const inheritedSuper = [];
+      const seen = new Set();
+      for (const pb of [...parentBuffsA, ...parentBuffsB]) {
+        if (!pb?.superRare) continue;
+        // de-dupe by a stable key
+        const key = `${pb.kind}|${pb.stat ?? ''}|${pb.mult ?? ''}|${pb.amount ?? ''}|${pb.minBST ?? ''}|${pb.maxBST ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const copy = JSON.parse(JSON.stringify(pb));
+        copy.fusionInherited = true;
+        if (copy.kind === 'bst-to-600') copy.fusionEnsure600 = true;
+        inheritedSuper.push(copy);
+      }
+
+      const rolledFusionBuffs = rollFusionBuffs(rarity, rollBase, Math.random, minFusionBuffs);
+      const buffs = [...rolledFusionBuffs, ...inheritedSuper];
+      const { stats: finalStats, superChangedStats } = applyStatBuffs(fusedBaseStats, buffs);
+
+      // Shiny boost (+50 to lowest final stat)
+      let shinyBoostStat = null;
+      if (isShiny) {
+        const keys = ['hp','atk','def','spa','spd','spe'];
+        let minVal = Infinity;
+        for (const k of keys) {
+          const v = finalStats?.[k];
+          if (typeof v === 'number') minVal = Math.min(minVal, v);
+        }
+        const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
+        const pick = mins.length ? mins[Math.floor(Math.random() * mins.length)] : 'hp';
+        shinyBoostStat = pick;
+        finalStats[pick] = (finalStats[pick] ?? 0) + 50;
+      }
+
+      // Create fused record (keeps base species identity)
+      const fused = {
+        uid: uid('c'),
+        dexId: base.dexId,
+        formId: base.formId,
+        speciesId: base.speciesId ?? base.formId,
+        name: base.name,
+        rarity,
+        badge: (RARITIES.find(r => r.key === rarity)?.badge) ?? base.badge,
+        buffs,
+        spriteUrl: base.spriteUrl,
+        shiny: isShiny,
+        isDelta,
+        shinyBoostStat,
+        baseStats: fusedBaseStats,
+        finalStats,
+        superChangedStats,
+        types,
+        ability,
+        moves: fusedMoves,
+        caughtBall: base.caughtBall ?? null,
+        caughtAt: Date.now(),
+        isFusion: true,
+        fusionMeta: {
+          baseUid: base.uid,
+          otherUid: other.uid,
+          statsFromOther: ['hp','atk','def','spa','spd','spe'].filter(k => !split.takeA.has(k)),
+        },
+        fusedFrom: [a.uid, b.uid],
+      };
+
+      // Remove parents, add child
+      const nextCaught = caught.filter(m => m?.uid !== a.uid && m?.uid !== b.uid);
+      nextCaught.unshift(fused);
+
+      // Team handling: remove parents from team; child not auto-added
+      const teamUids = Array.isArray(prev.teamUids) ? prev.teamUids.filter(x => x !== a.uid && x !== b.uid) : [];
+      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
+
+      return { ...prev, caught: nextCaught, teamUids, activeTeamUid, pendingFusionToken: false };
+    });
+  }
+
 
   function setLockManyPokemon(uids, locked) {
     const uidSet = new Set((uids || []).filter(Boolean));
@@ -737,6 +989,19 @@ function grantDailyGiftIfAvailable() {
     const mon = save.caught[idx];
     const fromBaseId = toID(mon.formId ?? mon.speciesId ?? mon.name);
 
+    // Super-rare stat-roll evolution choice:
+    // If the mon has a super-rare buff that affects stats (BST->600, reroll-stats, +50 stat, stat-all, stat-mult),
+    // allow the player to KEEP the existing rolled stats on evolution, or REROLL (default behavior).
+    const SR_STAT_KINDS = new Set(['bst-to-600', 'reroll-stats', 'stat', 'stat-all', 'stat-mult']);
+    const monBuffsArr = Array.isArray(mon?.buffs) ? mon.buffs : (mon?.buff ? [mon.buff] : []);
+    const hasSuperRareStatRoll = monBuffsArr.some(b => b?.superRare && SR_STAT_KINDS.has(b.kind));
+    let keepSuperRareStatRolls = false;
+    if (hasSuperRareStatRoll) {
+      keepSuperRareStatRolls = window.confirm(
+        'This Pokémon has super-rare stat rolls.\n\nOK = KEEP existing rolls\nCancel = REROLL for the evolution'
+      );
+    }
+
 
     const options = targetDexId ? [targetDexId] : getEvolutionOptions(mon.formId ?? mon.speciesId ?? mon.name);
     if (!options || options.length === 0) {
@@ -771,6 +1036,15 @@ function grantDailyGiftIfAvailable() {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+
+    // If keeping super-rare stat rolls, preserve the *final rolled stats* from the pre-evolution mon.
+    // We still show the evolved species base stats in the UI (evolvedRecord.baseStats), but final values are preserved.
+    if (keepSuperRareStatRolls) {
+      evolvedRecord.finalStats = JSON.parse(JSON.stringify(mon.finalStats ?? evolvedRecord.finalStats ?? {}));
+      evolvedRecord.superChangedStats = Array.isArray(mon.superChangedStats)
+        ? [...mon.superChangedStats]
+        : (evolvedRecord.superChangedStats ?? []);
+    }
 
     if (mon.isDelta) {
       evolvedRecord.types = mon.types;
@@ -993,7 +1267,7 @@ const dexCaughtAfter = (function(){
   return c;
 })();
 
-const { nextTrainer } = applyCatchProgress(cur.trainer ?? base.trainer, {
+const { nextTrainer, achievementUnlocks } = applyCatchProgress(cur.trainer ?? base.trainer, {
   rarityKey,
   isShiny,
   isDelta,
@@ -1004,7 +1278,12 @@ const { nextTrainer } = applyCatchProgress(cur.trainer ?? base.trainer, {
   disableAchievements: (mode === 'mini'),
 });
 
-return { ...cur, pokedex: dex, trainer: nextTrainer };
+const balls2 = { ...(cur.balls ?? {}) };
+if (mode !== 'mini') {
+  const add = Array.isArray(achievementUnlocks) ? achievementUnlocks.length : 0;
+  if (add > 0) balls2.master = (balls2.master ?? 0) + add;
+}
+return { ...cur, pokedex: dex, trainer: nextTrainer, balls: balls2 };
   });
 }
 
@@ -1537,6 +1816,7 @@ function viewSavedRun(summary) {
     const STAT_KEYS_LOCAL = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 
     const arr = Array.isArray(buffs) ? buffs : (buffs ? [buffs] : []);
+    const superChanged = new Set();
 
     function clampStat(v) {
       v = Math.trunc(Number(v) || 0);
@@ -1634,6 +1914,14 @@ function viewSavedRun(summary) {
     // Apply additive stat buffs (order doesn't matter; they stack)
     for (const b of arr) {
       if (!b || !b.kind) continue;
+      // Fusion-inherited super-rare stat buffs are kept for the icon/metadata only.
+      // They should NOT re-apply their stat effects during fusion stat calculation.
+      // Exception: bst-to-600 is handled later and may be forced to ensure 600 BST.
+      if (b?.fusionInherited && b?.superRare) {
+        if (b.kind === 'stat' || b.kind === 'stat2' || b.kind === 'stat-all' || b.kind === 'reroll-stats' || b.kind === 'stat-mult') {
+          continue;
+        }
+      }
       if (b.kind === 'reroll-stats' || b.kind === 'bst-to-600') continue;
 
       // legacy kinds
@@ -1651,16 +1939,19 @@ function viewSavedRun(summary) {
       // current kinds
       if (b.kind === 'stat') {
         s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
+        if (b?.superRare && b?.stat) superChanged.add(b.stat);
         continue;
       }
       if (b.kind === 'stat2') {
         const [a, c] = b.stats ?? [];
         if (a) s[a] = (s[a] ?? 0) + (b.amount ?? 0);
         if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+        if (b?.superRare) { if (a) superChanged.add(a); if (c) superChanged.add(c); }
         continue;
       }
       if (b.kind === 'stat-all') {
         for (const k of STAT_KEYS_LOCAL) s[k] = (s[k] ?? 0) + (b.amount ?? 0);
+        if (b?.superRare) for (const k of STAT_KEYS_LOCAL) superChanged.add(k);
         continue;
       }
     }
@@ -1670,12 +1961,35 @@ function viewSavedRun(summary) {
 
     // Apply "BST to 600" last (it modifies all stats evenly)
     const hasBST600 = arr.some(b => b?.kind === 'bst-to-600');
+    const bst600Buff = arr.find(b => b?.kind === 'bst-to-600');
     if (hasBST600) {
+      if (bst600Buff?.superRare) for (const k of STAT_KEYS_LOCAL) superChanged.add(k);
       const target = 600;
       let bst = calcBST(s);
-      let diff = target - bst;
 
-      if (diff > 0) {
+      // If this is a fusion-inherited BST->600 buff, we *ensure* the fusion is at least 600 BST.
+      // We do NOT apply the "already >= 600 => +100" fallback in that specific case.
+      const fusionEnsure600 = !!bst600Buff?.fusionEnsure600;
+
+      // If already at/above 600 BST, instead grant +100 BST randomly across stats.
+      if (bst >= target) {
+        if (fusionEnsure600) {
+          // do nothing; already meets the 600 requirement
+        } else {
+        let diff = 100;
+        let safety = 0;
+        while (diff > 0 && safety++ < 5000) {
+          const k = STAT_KEYS_LOCAL[Math.floor(rng() * STAT_KEYS_LOCAL.length)];
+          if (s[k] < 255) {
+            s[k] += 1;
+            diff -= 1;
+          }
+          if (STAT_KEYS_LOCAL.every(k2 => s[k2] >= 255)) break;
+        }
+        }
+      } else {
+        let diff = target - bst;
+
         // Add evenly first
         let baseAdd = Math.floor(diff / 6);
         if (baseAdd > 0) {
@@ -1699,10 +2013,31 @@ function viewSavedRun(summary) {
       }
     }
 
+    // Apply multiplicative stat buffs (after BST normalization)
+    for (const b of arr) {
+      if (!b || !b.kind) continue;
+      if (b.kind !== 'stat-mult') continue;
+      if (b?.fusionInherited && b?.superRare) {
+        // keep icon/metadata only (fusion still only takes 3 stats from each parent)
+        continue;
+      }
+      const k = b.stat;
+      if (!k) continue;
+      const baseVal = baseStats?.[k];
+      if (typeof baseVal === 'number' && typeof b.onlyIfBaseBelow === 'number') {
+        if (!(baseVal < b.onlyIfBaseBelow)) continue;
+      }
+      const mult = Number(b.mult ?? 2) || 2;
+      if (typeof s[k] === 'number') {
+        s[k] = clampStat(Math.round(s[k] * mult));
+        if (b?.superRare) superChanged.add(k);
+      }
+    }
+
     // Final clamp
     for (const k of STAT_KEYS_LOCAL) s[k] = clampStat(s[k]);
 
-    return s;
+    return { stats: s, superChangedStats: Array.from(superChanged) };
   }
 
   async function buildCaughtRecord(w, spriteUrlResolved, isShiny = false, caughtBallKey = null) {
@@ -1730,7 +2065,7 @@ function viewSavedRun(summary) {
     const types = w?.isDelta ? rollDeltaTypes(baseTypes) : baseTypes;
 
     const baseStats = w.baseStats ?? {};
-    const finalStats = applyStatBuffs(baseStats, w.buffs ?? w.buff);
+    const { stats: finalStats, superChangedStats } = applyStatBuffs(baseStats, w.buffs ?? w.buff);
 
     let shinyBoostStat = null;
     if (isShiny) {
@@ -1767,6 +2102,7 @@ function viewSavedRun(summary) {
 
       baseStats,
       finalStats,
+      superChangedStats,
       types,
 
       ability,
@@ -2145,10 +2481,7 @@ bumpDexCaughtFromAny(
 
   <button
     className="btn backpackFab"
-    onClick={() => {
-      grantDailyGiftIfAvailable();
-      setShowBackpack(v => !v);
-    }}
+    onClick={() => { setShowBackpack(v => !v); }}
 
     title="Backpack"
     aria-label="Open Backpack"
@@ -2164,7 +2497,7 @@ bumpDexCaughtFromAny(
       <div className="mobileRightRail" aria-label="Quick actions">
         <button
           className="btnSmall railBtn railBtnBackpack"
-          onClick={() => setShowBackpack(v => !v)}
+          onClick={() => { setShowBackpack(v => !v); }}
           title="Backpack"
           aria-label="Backpack"
           type="button"
@@ -2269,10 +2602,19 @@ bumpDexCaughtFromAny(
                     <RarityBadge badge={wild.badge} size={22} />
                   </div>
 
-                  {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
-                  {wild.shiny ? (
-                    <div className="shinyCorner" title="Shiny" aria-label="Shiny">
-                      ✨
+                  {/* Shiny + Super-rare indicators (top-right). Keep separate from NEW/CAUGHT badge. */}
+                  {(wild.shiny || (Array.isArray(wild.buffs) && wild.buffs.some(b => b?.superRare))) ? (
+                    <div className="wildTopRight">
+                      {wild.shiny ? (
+                        <div className="shinyCorner" title="Shiny" aria-label="Shiny">
+                          ✨
+                        </div>
+                      ) : null}
+                      {(Array.isArray(wild.buffs) && wild.buffs.some(b => b?.superRare)) ? (
+                        <div className="superRareCorner" title="Super rare buff" aria-label="Super rare buff">
+                          ✦
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -2489,6 +2831,10 @@ bumpDexCaughtFromAny(
         <PCBox
           caughtList={caughtList}
           moveTokens={save.moveTokens ?? 0}
+          fusionTokens={save.fusionTokens ?? 0}
+          onStartFuse={startFusion}
+          onCancelFuse={cancelFusion}
+          onConfirmFuse={confirmFusion}
           onReplaceMove={replaceMoveWithToken}
           onRelease={releasePokemon}
           onReleaseMany={releaseManyPokemon}
@@ -2694,6 +3040,46 @@ bumpDexCaughtFromAny(
           </div>
         </div>
       </div>
+
+      
+      {showBackpack ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Backpack" onClick={() => setShowBackpack(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <div className="modalTitle">Backpack</div>
+                <div className="modalSub">Tokens & daily gift</div>
+              </div>
+              <button className="btnGhost" onClick={() => setShowBackpack(false)} aria-label="Close backpack" title="Close" type="button">✕</button>
+            </div>
+
+            <div className="settingsGroup">
+              <div className="settingsHeading">Tokens</div>
+              <div className="settingsRow" style={{justifyContent:'space-between'}}>
+                <span>Move Tokens</span>
+                <b>{save.moveTokens ?? 0}</b>
+              </div>
+              <div className="settingsRow" style={{justifyContent:'space-between'}}>
+                <span>Fusion Tokens</span>
+                <b>{save.fusionTokens ?? 0}</b>
+              </div>
+            </div>
+
+            <div className="settingsGroup">
+              <div className="settingsHeading">Daily Gift</div>
+              <button
+                className={`btnSmall giftBtn ${((save.lastDailyGiftKey || null) !== todayKey()) ? 'giftBtnAvailable' : 'giftBtnUnavailable'}`}
+                type="button"
+                disabled={((save.lastDailyGiftKey || null) === todayKey())}
+                onClick={() => grantDailyGiftIfAvailable()}
+                aria-label="Claim daily gift"
+              >
+                {((save.lastDailyGiftKey || null) !== todayKey()) ? 'Claim Daily Gift' : 'Daily Gift Claimed'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showSettings ? (
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Settings" onClick={closeSettings}>

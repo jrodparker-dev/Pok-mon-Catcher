@@ -35,9 +35,12 @@ export default function GrassPatches({ slots, onPick, Sprite }) {
           {/* FULLY OPAQUE overlay to hide sprite completely */}
           <div style={styles.grassOverlay} aria-hidden="true" />
 
-          {/* sparkle for shiny */}
-          {mon?.shiny ? (
-            <div style={styles.sparkle} aria-hidden="true">✨</div>
+          {/* sparkles (shiny + super-rare) */}
+          {(mon?.shiny || (Array.isArray(mon?.buffs) && mon.buffs.some(b => b?.superRare))) ? (
+            <div style={styles.sparkleWrap} aria-hidden="true">
+              {mon?.shiny ? <div style={styles.sparkle}>✨</div> : null}
+              {(Array.isArray(mon?.buffs) && mon.buffs.some(b => b?.superRare)) ? <div style={styles.superSparkle}>✦</div> : null}
+            </div>
           ) : null}
 
           <div style={styles.label} aria-hidden="true">Grass</div>
@@ -82,12 +85,21 @@ const styles = {
       'repeating-linear-gradient(60deg, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.08) 2px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 7px)',
     backgroundBlendMode: 'multiply',
   },
-  sparkle: {
+  sparkleWrap: {
     position: 'absolute',
     top: 8,
     right: 8,
-    fontSize: 18,
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
     filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.45))',
+  },
+  sparkle: {
+    fontSize: 18,
+  },
+  superSparkle: {
+    fontSize: 18,
+    color: '#60a5fa',
   },
   label: {
     position: 'absolute',

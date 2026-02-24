@@ -20595,3 +20595,9 @@ oinkolognemega: {
 
 
 };
+
+// Compatibility exports for modules that expect `pokedex` or default export.
+// (Some older files import {pokedex} or `import pokedex from ...`.)
+export const pokedex = Pokedex;
+export default Pokedex;
+

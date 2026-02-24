@@ -1872,3 +1872,94 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .modalTitleIcon .ballIconImg{
   display:block;
 }
+
+
+/* Super-rare sparkle (blue) */
+.superRareSparkle { color: #60a5fa; text-shadow: 0 0 10px rgba(96,165,250,.55); }
+.gridTopRight{
+  position:absolute;
+  top:6px;
+  right:6px;
+  display:flex;
+  gap:4px;
+  align-items:center;
+}
+.gridSuperRareCorner{
+  font-size:14px;
+  line-height:14px;
+  color:#60a5fa;
+  text-shadow:0 0 10px rgba(96,165,250,.6);
+}
+
+/* Fusion UI */
+.fusionBar{
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(15,23,42,.85);
+  backdrop-filter: blur(6px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.fusionBarMon{ display:flex; align-items:center; gap:10px; }
+.fusionBarSprite{ width:44px; height:44px; image-rendering: pixelated; }
+.fusionBarTitle{ font-weight:900; font-size:12px; opacity:.9; letter-spacing:.02em; }
+.pcConfirmOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(0,0,0,.60);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 18px;
+}
+.pcConfirmCard{
+  width: min(520px, 96vw);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(17,24,39,.95);
+  padding: 16px 16px 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.45);
+}
+.pcConfirmTitle{ font-weight: 1000; font-size: 18px; margin-bottom: 6px; }
+.pcConfirmText{ opacity: .9; margin-bottom: 12px; }
+.pcConfirmSprites{ display:flex; align-items:center; justify-content:center; gap:14px; margin: 10px 0 14px; }
+.pcConfirmSprite{ width:72px; height:72px; image-rendering: pixelated; }
+.pcConfirmPlus{ font-size: 20px; font-weight: 1000; opacity:.9; }
+.pcConfirmBtns{ display:flex; justify-content:flex-end; gap:10px; }
+
+
+/* Backpack daily gift button */
+.giftBtn{ width: 100%; margin-top: 8px; }
+.giftBtnAvailable{ background: rgba(34,197,94,.85); border-color: rgba(34,197,94,.55); }
+.giftBtnUnavailable{ background: rgba(148,163,184,.18); border-color: rgba(148,163,184,.20); opacity: .7; cursor: not-allowed; }
+
+
+/* Fusion Pokémon outline (PC Box only) */
+.gridItem.fusionOutline {
+  box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.95) inset;
+}
+
+
+/* Encounter top-right indicators */
+.wildTopRight{
+  position:absolute;
+  top:10px;
+  right:10px;
+  display:flex;
+  gap:6px;
+  align-items:center;
+  z-index:5;
+}
+.superRareCorner{
+  font-size:18px;
+  color:#60a5fa;
+  text-shadow:0 6px 10px rgba(0,0,0,0.45);
+}

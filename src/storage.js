@@ -99,6 +99,8 @@ export function defaultSave() {
 
     balls: { poke: 25, great: 15, ultra: 10, master: 1 },
     moveTokens: 0,
+    fusionTokens: 0,
+    pendingFusionToken: false,
 
     // Pokédex progress keyed by base National Dex number (as string) and sometimes base id convenience keys.
     // This must be permanent and not derived from PC contents.
@@ -143,6 +145,8 @@ export function defaultMiniRun({ shinyCharm = false, balls = { poke: 15, great: 
     },
     balls: { ...balls },
     moveTokens: 0,
+    fusionTokens: 0,
+    pendingFusionToken: false,
     pokedex: {},
     caught: [],
     teamUids: [],
