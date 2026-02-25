@@ -5,7 +5,6 @@
 // - Caches the first successful URL per (spriteId + shiny) key for the session.
 
 export const SHOWDOWN_BASE = 'https://play.pokemonshowdown.com/sprites';
-export const POKEATHLON_FUSION_BASE = 'https://play.pokeathlon.com/sprites/fusion-sprites';
 
 // Common forme suffixes that sometimes get saved without a hyphen
 // (e.g. palkiaorigin -> palkia-origin). Add new ones here.
@@ -18,7 +17,7 @@ export const FORME_SUFFIXES = [
   'primal','crowned','complete', 'dawnwings', 'duskmane', 'ultra',
   'paldeaaqua', 'paldeablaze', 'paldeacombat', 'bloodmoon', 'rapidstrike',
   'four', 'fancy', 'whitestriped', 'bluestriped', 'threesegment',
-  'terastal', 'pirouette', 'gorging', 'dada', 'F',
+  'terastal', 'pirouette', 'gorging', 'dada',
 
   // rotom
   'fan', 'mow', 'heat', 'wash', 'frost',
@@ -102,17 +101,6 @@ export function getSpriteId(mon) {
 }
 
 function getCacheKey(mon) {
-  // Fusion sprites should NOT share cache keys with their base species,
-  // otherwise a cached base sprite can "win" and you never see the fusion art.
-  if (mon?.isFusion && Array.isArray(mon?.fusionSpriteNums) && mon.fusionSpriteNums.length === 2) {
-    const a = Number(mon.fusionSpriteNums[0]);
-    const b = Number(mon.fusionSpriteNums[1]);
-    if (Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) {
-      const k = `fusion_${a}.${b}`;
-      return mon?.shiny ? `${k}__shiny` : k;
-    }
-  }
-
   const id = getSpriteId(mon);
   return mon?.shiny ? `${id}__shiny` : id;
 }
@@ -140,11 +128,32 @@ function insertHyphenBeforeSuffix(id) {
   return null;
 }
 
+
+// Gender form suffixes sometimes get saved without a hyphen (e.g. meowsticf -> meowstic-f).
+function insertHyphenForGenderSuffix(id) {
+  if (!id || id.includes('-')) return null;
+
+  // Only certain species use gender-form suffixes in their Showdown IDs.
+  // Limit to avoid bogus lookups like rotom-m, abomasnow-m, etc.
+  const GENDER_FORM_SPECIES = new Set(['meowstic', 'basculegion']);
+
+  const last = id.slice(-1);
+  if (last !== 'f' && last !== 'm') return null;
+
+  const base = id.slice(0, -1);
+  if (!GENDER_FORM_SPECIES.has(base)) return null;
+
+  return `${base}-${last}`;
+}
+
 export function getSpriteIdCandidates(mon) {
   const id0 = getSpriteId(mon); // IMPORTANT: no __shiny here
   const out = [];
 
-  // Prefer hyphen-fixed first
+  // Prefer hyphen-fixed first (gender forms first, then known suffixes)
+  const genderFixed = insertHyphenForGenderSuffix(id0);
+  if (genderFixed) out.push(genderFixed);
+
   const hyphenFixed = insertHyphenBeforeSuffix(id0);
   if (hyphenFixed) out.push(hyphenFixed);
 
@@ -173,19 +182,9 @@ export function getShowdownSpriteCandidates(mon) {
 
   const urls = [];
 
-  // 1) Fusion sprite attempt (before ANY Showdown sprites)
-  // We don't "scrape" at runtime; we just attempt the deterministic URL pattern.
-  if (mon?.isFusion && Array.isArray(mon?.fusionSpriteNums) && mon.fusionSpriteNums.length === 2) {
-    const a = Number(mon.fusionSpriteNums[0]);
-    const b = Number(mon.fusionSpriteNums[1]);
-    if (Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) {
-      // Try stored order first, then reverse order as a safety net.
-      urls.push(`${POKEATHLON_FUSION_BASE}/${a}.${b}.png`);
-      urls.push(`${POKEATHLON_FUSION_BASE}/${b}.${a}.png`);
-    }
-  }
+  
 
-  // 2) Cached successful sprite for this exact key
+
   if (cached) urls.push(cached);
 
   for (const id of ids) {

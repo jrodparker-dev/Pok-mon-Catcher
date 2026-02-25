@@ -486,7 +486,7 @@ function grantDailyGiftIfAvailable() {
 
       if (caught[idx]?.locked) {
         // Locked Pokémon cannot be released except via full reset.
-        setMessage("You can't release this pokemon when it's locked.");
+        setMessage('That Pokémon is locked. Unlock it in the detail screen to release.');
         return prev;
       }
 
@@ -739,15 +739,12 @@ function grantDailyGiftIfAvailable() {
       }
 
       // Create fused record (keeps base species identity)
-      const baseNum = Number(base?.dexNum ?? base?.num ?? base?.id);
-      const otherNum = Number(other?.dexNum ?? other?.num ?? other?.id);
       const fused = {
         uid: uid('c'),
         dexId: base.dexId,
         formId: base.formId,
         speciesId: base.speciesId ?? base.formId,
         name: base.name,
-        fusionOtherName: other.name,
         rarity,
         badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
         buffs,
@@ -755,9 +752,6 @@ function grantDailyGiftIfAvailable() {
         shiny: isShiny,
         isDelta,
         isFusion: true,
-        fusionSpriteNums: (Number.isFinite(baseNum) && Number.isFinite(otherNum) && baseNum > 0 && otherNum > 0)
-          ? [baseNum, otherNum]
-          : null,
         shinyBoostStat,
         baseStats: fusedBaseStats,
         finalStats,
