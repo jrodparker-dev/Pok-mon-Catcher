@@ -6,6 +6,38 @@
 
 export const SHOWDOWN_BASE = 'https://play.pokemonshowdown.com/sprites';
 
+// Pokeathlon Infinite Fusion numbering map (subset; values < 800).
+import pokeathlonFusionNums from './fusionNums.pokeathlon.json';
+
+const POKEATHLON_FUSION_BASE = 'https://play.pokeathlon.com/sprites/fusion-sprites';
+
+// IDs in the numbering map use PS-style toID keys (lowercase alnum).
+function toKey(x) {
+  return String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function getPokeathlonFusionNum(formId, natDexNum) {
+  const k = toKey(formId);
+  const mapped = pokeathlonFusionNums?.[k];
+  // The uploaded map includes some out-of-range entries (>= 800) for other contexts.
+  if (typeof mapped === 'number' && mapped > 0 && mapped < 800) return mapped;
+  if (typeof natDexNum === 'number' && natDexNum > 0) return natDexNum;
+  return null;
+}
+
+export function getFusionSpriteUrls(mon) {
+  if (!mon?.isFusion) return null;
+  const fm = mon?.fusionMeta || {};
+  const aNum = getPokeathlonFusionNum(fm.baseFormId, fm.baseDexId);
+  const bNum = getPokeathlonFusionNum(fm.otherFormId, fm.otherDexId);
+  if (!aNum || !bNum) return null;
+  return {
+    primary: `${POKEATHLON_FUSION_BASE}/${aNum}.${bNum}.png`,
+    flipped: `${POKEATHLON_FUSION_BASE}/${bNum}.${aNum}.png`,
+  };
+}
+
+
 // Common forme suffixes that sometimes get saved without a hyphen
 // (e.g. palkiaorigin -> palkia-origin). Add new ones here.
 export const FORME_SUFFIXES = [
@@ -181,6 +213,18 @@ export function getShowdownSpriteCandidates(mon) {
   const isShiny = !!mon?.shiny;
 
   const urls = [];
+
+  // Fusion sprite candidates (Pokeathlon)
+  const fusionUrls = getFusionSpriteUrls(mon);
+  if (fusionUrls?.primary && fusionUrls?.flipped) {
+    const pref = String(mon?.fusionSpriteChoice || '').toLowerCase();
+    if (pref === 'flip' || pref === 'other') {
+      urls.push(fusionUrls.flipped, fusionUrls.primary);
+    } else {
+      urls.push(fusionUrls.primary, fusionUrls.flipped);
+    }
+  }
+
 
   
 

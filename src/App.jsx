@@ -836,7 +836,38 @@ function confirmFusion(uidA, uidB) {
         baseStats: fusedBaseStats,
         rarity,
       };
-      const buffs = rollFusionBuffs(rarity, rollBase, Math.random);
+      const buffsRolled = rollFusionBuffs(rarity, rollBase, Math.random);
+
+      // Super-rare stat buffs (blue sparkle) should always transfer from parents into the fusion.
+      const parentSuper = []
+        .concat(Array.isArray(a?.buffs) ? a.buffs : [])
+        .concat(Array.isArray(b?.buffs) ? b.buffs : [])
+        .filter(x => x && x.superRare);
+
+      const dedupeKey = (x) => JSON.stringify({
+        kind: x.kind,
+        stat: x.stat,
+        stats: x.stats,
+        amount: x.amount,
+        mult: x.mult,
+        superRare: !!x.superRare,
+      });
+
+      const seen = new Set();
+      const buffs = [];
+      for (const x of buffsRolled) {
+        const k = dedupeKey(x);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        buffs.push(x);
+      }
+      for (const x of parentSuper) {
+        const k = dedupeKey(x);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        buffs.push(x);
+      }
+
       const { stats: finalStats, superChangedStats } = applyStatBuffs(fusedBaseStats, buffs);
 
       // Shiny boost (+50 to lowest final stat)
@@ -869,6 +900,11 @@ function confirmFusion(uidA, uidB) {
         fusionMeta: {
           // used for green stat coloring in PokemonDetail
           statsFromOther,
+          // used for fusion sprite lookups (Pokeathlon numbering map + fallbacks)
+          baseFormId: base.formId,
+          otherFormId: other.formId,
+          baseDexId: base.dexId,
+          otherDexId: other.dexId,
         },
         rarity,
         badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
@@ -902,7 +938,19 @@ function confirmFusion(uidA, uidB) {
   }
 
 
-  function setLockManyPokemon(uids, locked) {
+    function setFusionSpriteChoice(uid, choice) {
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      if (!caught.length) return prev;
+      const next = caught.map(m => {
+        if (!m || m.uid !== uid) return m;
+        return { ...m, fusionSpriteChoice: choice };
+      });
+      return { ...prev, caught: next };
+    });
+  }
+
+function setLockManyPokemon(uids, locked) {
     const uidSet = new Set((uids || []).filter(Boolean));
     if (!uidSet.size) return;
 

@@ -4,7 +4,7 @@ import PokeballIcon from './PokeballIcon.jsx';
 import { getEvolutionOptions } from '../evolution.js';
 import { getDexById } from '../dexLocal.js';
 import { rollRandomMoveIds, getMoveDisplay } from '../randomMoveTokens.js';
-import { cacheSpriteSuccess, getShowdownSpriteCandidates, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
+import { cacheSpriteSuccess, getShowdownSpriteCandidates, getFusionSpriteUrls, SPRITE_CACHE_EVENT } from '../spriteLookup.js';
 import { RARITIES, DELTA_BADGE, describeBuff } from '../rarity.js';
 
 const STAT_ORDER = [
@@ -55,7 +55,35 @@ function SpriteWithFallback({ mon, className }) {
   );
 }
 
-export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onStartFuse, fusionTokens }) {
+export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onSetFusionSpriteChoice, onStartFuse, fusionTokens }) {
+  // Fusion sprite availability + UI (only shown if BOTH orientations exist).
+  const [fusionAvail, setFusionAvail] = useState({ primary: false, flipped: false });
+  const [fusionMenuOpen, setFusionMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setFusionMenuOpen(false);
+    const urls = getFusionSpriteUrls(mon);
+    if (!urls?.primary || !urls?.flipped) {
+      setFusionAvail({ primary: false, flipped: false });
+      return;
+    }
+
+    let alive = true;
+    const probe = (src) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = src;
+    });
+
+    (async () => {
+      const [a, b] = await Promise.all([probe(urls.primary), probe(urls.flipped)]);
+      if (!alive) return;
+      setFusionAvail({ primary: !!a, flipped: !!b });
+    })();
+
+    return () => { alive = false; };
+  }, [mon?.uid]);
   const [canEvolve, setCanEvolve] = useState(false);
   const [checkingEvo, setCheckingEvo] = useState(true);
   const [evoOptions, setEvoOptions] = useState([]);
@@ -148,7 +176,64 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
 
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 180, textAlign: 'center' }}>
-            <SpriteWithFallback mon={mon} className="gridSprite" />
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <SpriteWithFallback mon={mon} className="gridSprite" />
+
+              {(mon?.isFusion && fusionAvail.primary && fusionAvail.flipped) ? (
+                <>
+                  <button
+                    type="button"
+                    title="Choose fusion sprite"
+                    onClick={() => setFusionMenuOpen(v => !v)}
+                    style={{
+                      position: 'absolute',
+                      right: 4,
+                      bottom: 4,
+                      width: 22,
+                      height: 22,
+                      borderRadius: 6,
+                      border: '1px solid rgba(255,255,255,0.35)',
+                      background: 'rgba(0,0,0,0.45)',
+                      color: '#fff',
+                      fontWeight: 900,
+                      lineHeight: '18px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ▾
+                  </button>
+
+                  {fusionMenuOpen ? (
+                    <div style={{
+                      position: 'absolute',
+                      right: 4,
+                      bottom: 30,
+                      background: 'rgba(0,0,0,0.75)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      borderRadius: 10,
+                      padding: 6,
+                      minWidth: 170,
+                      zIndex: 50,
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => { onSetFusionSpriteChoice?.(mon.uid, 'normal'); setFusionMenuOpen(false); }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, color: '#fff', padding: '6px 8px', cursor: 'pointer' }}
+                      >
+                        Base / Other {String(mon?.fusionSpriteChoice || '').toLowerCase() === 'flip' ? '' : '✓'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { onSetFusionSpriteChoice?.(mon.uid, 'flip'); setFusionMenuOpen(false); }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, color: '#fff', padding: '6px 8px', cursor: 'pointer' }}
+                      >
+                        Other / Base {String(mon?.fusionSpriteChoice || '').toLowerCase() === 'flip' ? '✓' : ''}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
             <div style={{ marginTop: 8, fontWeight: 800 }}>
               Types: {mon.types?.map(cap).join(' / ')}
             </div>
