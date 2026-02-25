@@ -477,21 +477,7 @@ function grantDailyGiftIfAvailable() {
     });
   }
 
-  
-  function isLegendaryRarity(r) {
-    // Accept a variety of shapes (string keys/labels, objects, legacy fields)
-    if (!r) return false;
-    if (typeof r === 'string') return r.trim().toLowerCase() === 'legendary';
-    if (typeof r === 'object') {
-      const key = (r.key ?? r.rarity ?? r.id ?? r.label ?? '').toString().trim().toLowerCase();
-      if (key === 'legendary') return true;
-      const label = (r.label ?? '').toString().trim().toLowerCase();
-      if (label === 'legendary') return true;
-    }
-    return false;
-  }
-
-function releasePokemon(uid) {
+  function releasePokemon(uid) {
     setSave(prev => {
       const caught = Array.isArray(prev.caught) ? prev.caught : [];
       const idx = caught.findIndex(m => m.uid === uid);
@@ -500,7 +486,7 @@ function releasePokemon(uid) {
 
       if (caught[idx]?.locked) {
         // Locked Pokémon cannot be released except via full reset.
-        setMessage('That Pokémon is locked. Unlock it in the detail screen to release.');
+        setMessage("You can't release this pokemon when it's locked.");
         return prev;
       }
 
@@ -516,7 +502,7 @@ function releasePokemon(uid) {
       const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
       // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-      const fusionTokens = (isLegendaryRarity(caught[idx]?.rarity))
+      const fusionTokens = (String(caught[idx]?.rarity || '').toLowerCase() === 'legendary')
         ? ((prev.fusionTokens ?? 0) + 1)
         : (prev.fusionTokens ?? 0);
       const pendingFusionToken = !!(prev.pendingFusionToken);
@@ -562,7 +548,7 @@ function releasePokemon(uid) {
         }
         removed++;
         // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-        if (isLegendaryRarity(m?.rarity)) fusionTokens += 1;
+        if (String(m?.rarity || '').toLowerCase() === 'legendary') fusionTokens += 1;
 
         if (mode !== 'mini' && curSettings.ballOnRelease) {
           const ballKey = pickRandomBallKey();
@@ -698,7 +684,19 @@ function releasePokemon(uid) {
       // Delta fusion typing: allow mono OR dual typings (random). Delta ignores normal "take 1 type from each parent" rule.
       // Roll 1 or 2 new types that do not match either parent's current types.
       const types = (() => {
-        if (!isDelta) return baseTypes;
+        if (!isDelta) {
+          // Non-delta fusion: take 1 random type from each parent (prefer distinct) => always dual type when possible.
+          const pick = (arr) => (arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null);
+          const t1 = pick(baseTypes) ?? pick(otherTypes) ?? 'normal';
+          let t2 = pick(otherTypes) ?? pick(baseTypes) ?? 'normal';
+          // try to make them distinct
+          let guard = 0;
+          while (t2 === t1 && guard++ < 20) {
+            t2 = pick(otherTypes) ?? pick(baseTypes) ?? t2;
+          }
+          // If still same, fall back to mono
+          return t2 && t2 !== t1 ? [t1, t2] : [t1];
+        }
         const banned = new Set([...baseTypes, ...otherTypes].map(t => String(t).toLowerCase()));
         const ALL = [
           'normal','fire','water','electric','grass','ice','fighting','poison','ground',
@@ -741,18 +739,25 @@ function releasePokemon(uid) {
       }
 
       // Create fused record (keeps base species identity)
+      const baseNum = Number(base?.dexNum ?? base?.num ?? base?.id);
+      const otherNum = Number(other?.dexNum ?? other?.num ?? other?.id);
       const fused = {
         uid: uid('c'),
         dexId: base.dexId,
         formId: base.formId,
         speciesId: base.speciesId ?? base.formId,
         name: base.name,
+        fusionOtherName: other.name,
         rarity,
-        badge: (RARITIES?.[rarity]?.badge) ?? base.badge,
+        badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
         buffs,
         spriteUrl: base.spriteUrl,
         shiny: isShiny,
         isDelta,
+        isFusion: true,
+        fusionSpriteNums: (Number.isFinite(baseNum) && Number.isFinite(otherNum) && baseNum > 0 && otherNum > 0)
+          ? [baseNum, otherNum]
+          : null,
         shinyBoostStat,
         baseStats: fusedBaseStats,
         finalStats,

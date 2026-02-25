@@ -449,7 +449,12 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
     const alreadyHasDex = /^\s*#?\d+\s+/.test(raw);
     const cleanName = raw.replace(/^\s*#?\d+\s+/i, '').trim();
 
-    const labelName = cleanName || raw; // fallback
+    // Fusion display name: "Base / Other" (with spaces)
+    const otherRaw = String(p.fusionOtherName ?? '').trim();
+    const otherClean = otherRaw.replace(/^\s*#?\d+\s+/i, '').trim();
+    const fusionName = (p.isFusion && otherClean) ? `${cleanName || raw} / ${otherClean}` : null;
+
+    const labelName = fusionName || cleanName || raw; // fallback
     return alreadyHasDex ? raw : (dex ? `#${dex} ${labelName}` : labelName);
   })()}
 </div>
