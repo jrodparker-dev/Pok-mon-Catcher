@@ -744,7 +744,7 @@ function grantDailyGiftIfAvailable() {
         dexId: base.dexId,
         formId: base.formId,
         speciesId: base.speciesId ?? base.formId,
-        name: base.name,
+        name: `${base.name} / ${other.name}`,
         rarity,
         badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
         buffs,
