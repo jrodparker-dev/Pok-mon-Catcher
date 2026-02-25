@@ -28,6 +28,20 @@ import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
 
 import { pickWeightedRarity, rollBuffs, rollFusionBuffs, describeBuff, rollDelta, RARITIES, DELTA_BADGE } from './rarity.js';
+
+function normalizeRarityKey(r) {
+  if (!r) return '';
+  if (typeof r === 'string') return r.toLowerCase();
+  if (typeof r === 'object') {
+    const k = r.key ?? r.id ?? r.value ?? r.label;
+    if (typeof k === 'string') return k.toLowerCase();
+  }
+  return String(r).toLowerCase();
+}
+function isLegendaryRarity(r) {
+  return normalizeRarityKey(r) === 'legendary';
+}
+
 import { getAllAbilities, rollAbility } from './abilityPool.js';
 import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
@@ -477,21 +491,7 @@ function grantDailyGiftIfAvailable() {
     });
   }
 
-  
-  function isLegendaryRarity(r) {
-    // Accept a variety of shapes (string keys/labels, objects, legacy fields)
-    if (!r) return false;
-    if (typeof r === 'string') return r.trim().toLowerCase() === 'legendary';
-    if (typeof r === 'object') {
-      const key = (r.key ?? r.rarity ?? r.id ?? r.label ?? '').toString().trim().toLowerCase();
-      if (key === 'legendary') return true;
-      const label = (r.label ?? '').toString().trim().toLowerCase();
-      if (label === 'legendary') return true;
-    }
-    return false;
-  }
-
-function releasePokemon(uid) {
+  function releasePokemon(uid) {
     setSave(prev => {
       const caught = Array.isArray(prev.caught) ? prev.caught : [];
       const idx = caught.findIndex(m => m.uid === uid);
@@ -516,7 +516,7 @@ function releasePokemon(uid) {
       const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
       // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-      const fusionTokens = (isLegendaryRarity(caught[idx]?.rarity))
+      const fusionTokens = isLegendaryRarity(caught[idx]?.rarity)
         ? ((prev.fusionTokens ?? 0) + 1)
         : (prev.fusionTokens ?? 0);
       const pendingFusionToken = !!(prev.pendingFusionToken);
@@ -640,7 +640,13 @@ function releasePokemon(uid) {
           }
         }
       } else {
-        rarity = (Math.random() < 0.5) ? aR : bR;
+        // Different rarities: 50% highest of the two, 50% one tier lower than the highest
+        const ia = tiers.indexOf(aR);
+        const ib = tiers.indexOf(bR);
+        const hi = Math.max(ia, ib);
+        const highKey = hi >= 0 ? tiers[hi] : aR;
+        const lowKey = (hi > 0) ? tiers[hi - 1] : highKey;
+        rarity = (Math.random() < 0.5) ? highKey : lowKey;
       }
 
       // Choose orientation to maximize BST (base provides typing + 2 moves + 3 stats)
@@ -698,7 +704,19 @@ function releasePokemon(uid) {
       // Delta fusion typing: allow mono OR dual typings (random). Delta ignores normal "take 1 type from each parent" rule.
       // Roll 1 or 2 new types that do not match either parent's current types.
       const types = (() => {
-        if (!isDelta) return baseTypes;
+        if (!isDelta) {
+          // Non-delta fusion: take 1 random type from each parent (prefer distinct) => always dual type when possible.
+          const pick = (arr) => (arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null);
+          const t1 = pick(baseTypes) ?? pick(otherTypes) ?? 'normal';
+          let t2 = pick(otherTypes) ?? pick(baseTypes) ?? 'normal';
+          // try to make them distinct
+          let guard = 0;
+          while (t2 === t1 && guard++ < 20) {
+            t2 = pick(otherTypes) ?? pick(baseTypes) ?? t2;
+          }
+          // If still same, fall back to mono
+          return t2 && t2 !== t1 ? [t1, t2] : [t1];
+        }
         const banned = new Set([...baseTypes, ...otherTypes].map(t => String(t).toLowerCase()));
         const ALL = [
           'normal','fire','water','electric','grass','ice','fighting','poison','ground',
@@ -722,7 +740,45 @@ function releasePokemon(uid) {
         baseStats: fusedBaseStats,
         rarity,
       };
-      const buffs = rollFusionBuffs(rarity, rollBase, Math.random);
+      // Fusion buff floor: at least (max parent buff count - 1)
+      const aBuffCount = Array.isArray(a?.buffs) ? a.buffs.length : 0;
+      const bBuffCount = Array.isArray(b?.buffs) ? b.buffs.length : 0;
+      const minFusionBuffs = Math.max(1, Math.max(aBuffCount, bBuffCount) - 1);
+
+      // Preserve any super-rare buffs from either parent in the fusion
+      function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+      function superKey(bf) {
+        if (!bf) return '';
+        const kind = bf.kind ?? '';
+        const stat = bf.stat ?? '';
+        const stats = Array.isArray(bf.stats) ? bf.stats.join(',') : '';
+        const pct = bf.pct ?? '';
+        const mult = bf.mult ?? '';
+        const minBST = bf.minBST ?? '';
+        const maxBST = bf.maxBST ?? '';
+        return [kind, stat, stats, pct, mult, minBST, maxBST, 'SR'].join('|');
+      }
+      const inheritedSuperRare = [];
+      const seen = new Set();
+      for (const parent of [a, b]) {
+        const pb = Array.isArray(parent?.buffs) ? parent.buffs : [];
+        for (const bf of pb) {
+          if (!bf?.superRare) continue;
+          const c = clone(bf);
+          c.fusionInherited = true;
+          const k = superKey(c);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          inheritedSuperRare.push(c);
+        }
+      }
+
+      // Roll fusion buffs for the fused mon based on resulting rarity
+      const fusionBuffs = rollFusionBuffs(rarity, rollBase, Math.random, minFusionBuffs);
+
+      // Merge buffs: fusion buffs + inherited super-rare buffs (kept always)
+      const buffs = [...fusionBuffs, ...inheritedSuperRare];
+
       const { stats: finalStats, superChangedStats } = applyStatBuffs(fusedBaseStats, buffs);
 
       // Shiny boost (+50 to lowest final stat)
@@ -748,11 +804,12 @@ function releasePokemon(uid) {
         speciesId: base.speciesId ?? base.formId,
         name: base.name,
         rarity,
-        badge: (RARITIES?.[rarity]?.badge) ?? base.badge,
+        badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
         buffs,
         spriteUrl: base.spriteUrl,
         shiny: isShiny,
         isDelta,
+        isFusion: true,
         shinyBoostStat,
         baseStats: fusedBaseStats,
         finalStats,
@@ -1772,6 +1829,21 @@ function viewSavedRun(summary) {
       return t;
     }
 
+
+    function addRandomBST(s, points) {
+      // Spread integer points randomly across stats, respecting 255 cap.
+      let remaining = Math.max(0, Math.trunc(points || 0));
+      let safety = 0;
+      while (remaining > 0 && safety++ < 100000) {
+        const k = STAT_KEYS_LOCAL[Math.floor(rng() * STAT_KEYS_LOCAL.length)];
+        if ((s[k] ?? 0) < 255) {
+          s[k] = (s[k] ?? 0) + 1;
+          remaining--;
+        }
+        if (STAT_KEYS_LOCAL.every(k2 => (s[k2] ?? 0) >= 255)) break;
+      }
+    }
+
     function genUnhingedBalancedStats(minBST = 500, maxBST = 650) {
       // Spiky (unhinged) split with guardrails + compensation:
       // - 1..255 per stat
@@ -1845,10 +1917,10 @@ function viewSavedRun(summary) {
     // Start with base stats, but allow a reroll buff to replace them.
     let s = { ...baseStats };
 
-    const hasReroll = arr.some(b => b?.kind === 'reroll-stats');
+    const hasReroll = arr.some(b => b?.kind === 'reroll-stats' && !b?.fusionInherited);
     if (hasReroll) {
       // If multiple rerolls exist, just use the last one's range.
-      const last = [...arr].reverse().find(b => b?.kind === 'reroll-stats') || {};
+      const last = [...arr].reverse().find(b => b?.kind === 'reroll-stats' && !b?.fusionInherited) || {};
       s = genUnhingedBalancedStats(last.minBST ?? 500, last.maxBST ?? 650);
     }
 
@@ -1901,7 +1973,13 @@ function viewSavedRun(summary) {
       let bst = calcBST(s);
       let diff = target - bst;
 
-      if (diff > 0) {
+      if (bst >= target) {
+        // If this buff rolled on a Pokémon already at/above 600 BST, award +100 BST instead (super-rare only).
+        // Fusion-inherited BST->600 should only ensure reaching 600, not add extra BST.
+        if (bst600Buff?.superRare && !bst600Buff?.fusionInherited) {
+          addRandomBST(s, 100);
+        }
+      } else if (diff > 0) {
         // Add evenly first
         let baseAdd = Math.floor(diff / 6);
         if (baseAdd > 0) {
