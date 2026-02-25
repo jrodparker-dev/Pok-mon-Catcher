@@ -1652,6 +1652,18 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 
 /* PC Box bulk actions + rarity checkboxes */
 .pcBulkActions{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;}
+
+.pcIconButton{
+  padding:6px 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.25);
+  background:rgba(0,0,0,0.25);
+  color:#fff;
+  cursor:pointer;
+  font-size:16px;
+  line-height:1;
+}
+.pcIconButton:hover{background:rgba(0,0,0,0.35);}
 .pcRarityFilters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
 .pcRarityToggle{padding:6px 8px;}
 .pcRarityToggleIcon{display:inline-flex;align-items:center;justify-content:center;}

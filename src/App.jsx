@@ -589,7 +589,123 @@ function grantDailyGiftIfAvailable() {
     });
   }
 
-  function confirmFusion(uidA, uidB) {
+  
+  // DEBUG: One-time "refresh" to normalize older saved Pokémon records after big balance/feature changes.
+  // You can delete this entire function + the PC Box refresh button once you're done.
+  function refreshAllCaughtDebug() {
+    if (!window.confirm(
+  `Refresh ALL saved Pokémon?
+
+This recalculates derived fields (final stats, badges, missing buff fields, and fusion display names when metadata exists).
+
+This will NOT reroll buffs. Continue?`
+)) return;
+
+    const TEAM_KO_PCT_BY_RARITY = {common: 15, uncommon: 25, rare: 40, legendary: 60};
+    const ACTIVE_KO_PCT_BY_RARITY = {common: 25, uncommon: 35, rare: 50, legendary: 80};
+
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const nextCaught = caught.map(mon => {
+        if (!mon || typeof mon !== 'object') return mon;
+
+        const rarityKey = String(mon.rarity || '').toLowerCase();
+        const rarity = (RARITIES.find(r => r.key === rarityKey)?.key) ? rarityKey : (rarityKey || 'common');
+        const badge = (RARITIES.find(r => r.key === rarity)?.badge) ?? mon.badge;
+
+        // Normalize buffs (fill missing pct fields for KO ball buffs if present)
+        const buffs = Array.isArray(mon.buffs) ? mon.buffs.map(b => ({...b})) : [];
+        for (const b of buffs) {
+          if (!b || typeof b !== 'object') continue;
+          if (b.kind === 'ko-ball-team' && (b.pct == null || Number.isNaN(Number(b.pct)))) b.pct = TEAM_KO_PCT_BY_RARITY[rarity] ?? 0;
+          if (b.kind === 'ko-ball-active' && (b.pct == null || Number.isNaN(Number(b.pct)))) b.pct = ACTIVE_KO_PCT_BY_RARITY[rarity] ?? 0;
+        }
+
+        // Repair fusion metadata & keep base name in `name` (UI renders "Base / Other").
+        // NOTE: We intentionally do NOT bake the slash into `name`, because PCBox/PokemonDetail
+        // will append the partner name when `fusionOtherName` exists.
+        let name = mon.name;
+        let fusionBaseName = mon.fusionBaseName;
+        let fusionOtherName = mon.fusionOtherName || mon.fusionPartnerName;
+
+        if (mon.isFusion) {
+          // If older builds baked "Base / Other" into `name`, split it once.
+          if (typeof name === 'string' && name.includes(' / ') && !fusionOtherName) {
+            const parts = name.split(' / ');
+            if (parts.length >= 2) {
+              fusionBaseName = fusionBaseName || parts[0].trim();
+              fusionOtherName = fusionOtherName || parts.slice(1).join(' / ').trim();
+              name = fusionBaseName || parts[0].trim();
+            }
+          }
+
+          // If we have partner metadata but name is still the full combined string, normalize.
+          if (fusionBaseName && fusionOtherName && typeof name === 'string' && name.includes(' / ')) {
+            name = fusionBaseName;
+          }
+          // If we only know the partner, treat current name as base.
+          if (!fusionBaseName && fusionOtherName) fusionBaseName = name;
+        }
+
+        // Recompute finalStats from baseStats + buffs
+        const baseStats = mon.baseStats && typeof mon.baseStats === 'object' ? {...mon.baseStats} : null;
+        let finalStats = mon.finalStats && typeof mon.finalStats === 'object' ? {...mon.finalStats} : null;
+        let superChangedStats = mon.superChangedStats;
+
+        if (baseStats) {
+          const res = applyStatBuffs(baseStats, buffs, Math.random);
+          finalStats = res.stats;
+          superChangedStats = res.superChangedStats;
+
+          // Re-apply shiny boost
+          if (mon.shiny) {
+            let shinyBoostStat = mon.shinyBoostStat;
+            const keys = ['hp','atk','def','spa','spd','spe'];
+            if (!shinyBoostStat || !keys.includes(shinyBoostStat)) {
+              let minVal = Infinity;
+              for (const k of keys) {
+                const v = finalStats?.[k];
+                if (typeof v === 'number') minVal = Math.min(minVal, v);
+              }
+              const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
+              shinyBoostStat = mins.length ? mins[Math.floor(Math.random() * mins.length)] : 'hp';
+            }
+            finalStats = {...finalStats, [shinyBoostStat]: (finalStats?.[shinyBoostStat] ?? 0) + 50};
+            return {
+              ...mon,
+              rarity,
+              badge,
+              buffs,
+              name,
+              fusionBaseName,
+              fusionOtherName,
+              baseStats,
+              finalStats,
+              superChangedStats,
+              shinyBoostStat,
+            };
+          }
+        }
+
+        return {
+          ...mon,
+          rarity,
+          badge,
+          buffs,
+          name,
+          fusionBaseName,
+          fusionOtherName,
+          baseStats: baseStats ?? mon.baseStats,
+          finalStats,
+          superChangedStats,
+        };
+      });
+
+      return {...prev, caught: nextCaught};
+    });
+  }
+
+function confirmFusion(uidA, uidB) {
     setSave(prev => {
       const caught = Array.isArray(prev.caught) ? prev.caught : [];
       const a = caught.find(m => m?.uid === uidA);
@@ -739,12 +855,21 @@ function grantDailyGiftIfAvailable() {
       }
 
       // Create fused record (keeps base species identity)
+      const fusionStatKeys = ['hp','atk','def','spa','spd','spe'];
+      const statsFromOther = fusionStatKeys.filter(k => !split.takeA.has(k));
       const fused = {
         uid: uid('c'),
         dexId: base.dexId,
         formId: base.formId,
         speciesId: base.speciesId ?? base.formId,
+        // Keep base name in `name`; UI appends " / Other" when fusionOtherName exists.
         name: base.name,
+        fusionBaseName: base.name,
+        fusionOtherName: other.name,
+        fusionMeta: {
+          // used for green stat coloring in PokemonDetail
+          statsFromOther,
+        },
         rarity,
         badge: (RARITIES?.find(r => r?.key === rarity)?.badge) ?? base.badge,
         buffs,
@@ -2730,6 +2855,7 @@ bumpDexCaughtFromAny(
           caughtList={caughtList}
           moveTokens={save.moveTokens ?? 0}
           fusionTokens={save.fusionTokens ?? 0}
+          onRefreshAllCaught={refreshAllCaughtDebug}
           onStartFuse={startFusion}
           onCancelFuse={cancelFusion}
           onConfirmFuse={confirmFusion}

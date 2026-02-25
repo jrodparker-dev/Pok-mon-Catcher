@@ -126,7 +126,11 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
                 {isDelta ? <RarityBadge badge={DELTA_BADGE} size={18} /> : null}
                 {baseRarityBadge ? <RarityBadge badge={baseRarityBadge} size={18} /> : null}
               </div>
-              <span className="modalTitleText">#{mon.dexId ?? mon.id} {mon?.isFusion && mon?.fusionOtherName ? `${cap(mon.name)} / ${cap(mon.fusionOtherName)}` : cap(mon.name)}</span>
+              <span className="modalTitleText">#{mon.dexId ?? mon.id} {(() => {
+                const baseName = cap(mon.fusionBaseName ?? mon.name);
+                const otherName = cap(mon.fusionOtherName ?? '');
+                return (mon?.isFusion && otherName) ? `${baseName} / ${otherName}` : baseName;
+              })()}</span>
               {mon.shiny ? <span className="modalTitleIcon" aria-label="Shiny">✨</span> : null}
               {(Array.isArray(mon.buffs) && mon.buffs.some(b => b?.superRare)) ? <span className="modalTitleIcon superRareSparkle" aria-label="Super rare buff">✦</span> : null}
               <span className="modalTitleIcon">

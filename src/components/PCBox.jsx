@@ -77,7 +77,7 @@ function savePCBoxPrefs(prefs) {
     window.localStorage.setItem(PCBOX_PREFS_KEY, JSON.stringify(prefs || {}));
   } catch {}
 }
-export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse }) {
+export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught }) {
   const prefs = useMemo(() => loadPCBoxPrefs(), []);
   const [selectedUid, setSelectedUid] = useState(null);
   const [query, setQuery] = useState(() => String(prefs.query ?? ''));
@@ -207,6 +207,16 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
               </div>
 
               <div className="pcBulkActions">
+                {onRefreshAllCaught && (
+                  <button
+                    className="pcIconButton"
+                    title="Debug refresh: recompute saved Pokémon derived fields"
+                    onClick={onRefreshAllCaught}
+                  >
+                    ⟳
+                  </button>
+                )}
+
                 <button
                   className="btnSmall"
                   type="button"
