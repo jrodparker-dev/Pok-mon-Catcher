@@ -783,9 +783,9 @@ function confirmFusion(uidA, uidB) {
       // Determine offspring shiny chance
       const aSh = !!a.shiny;
       const bSh = !!b.shiny;
-      let shinyChance = 0.05;
-      if (aSh && bSh) shinyChance = 0.50;
-      else if (aSh || bSh) shinyChance = 0.25;
+      let shinyChance = 0.01;
+      if (aSh && bSh) shinyChance = 1.0;
+      else if (aSh || bSh) shinyChance = 0.50;
       const isShiny = Math.random() < shinyChance;
 
       // Rarity inheritance
