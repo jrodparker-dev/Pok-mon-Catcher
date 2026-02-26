@@ -11,6 +11,9 @@ export default function Pokedex({
   pokedex = {},             // stats map keyed by dexNum string (ex: "157")
   caughtList = [],          // caught mons (forms allowed)
   rarityFromCaught,         // optional fn(mon)=>badge
+  pickMode = false,
+  onPickDexNum,
+  pickCaughtOnly = false,
 }) {
   const [query, setQuery] = React.useState('');
   const [caughtOnly, setCaughtOnly] = React.useState(false);
@@ -335,7 +338,20 @@ export default function Pokedex({
               const spriteUrl = getHomePngSpriteUrl(spriteBaseId, anyShinyCaught);
 
               return (
-                <div key={dexNum} className="dexTile" aria-label={`Dex entry ${d.name}`}>
+                <button
+                  type="button"
+                  key={dexNum}
+                  className={`dexTile ${pickMode ? 'dexPickMode' : ''} ${pickMode && !isCaught ? 'disabled' : ''}`}
+                  aria-label={`Dex entry ${d.name}`}
+                  title={pickMode ? (isCaught ? 'Select' : 'You must catch it first') : undefined}
+                  onClick={() => {
+                    if (!pickMode) return;
+                    if (pickCaughtOnly && !isCaught) return;
+                    if (!isCaught) return;
+                    onPickDexNum?.(dexNum);
+                  }}
+                  disabled={pickMode && ((pickCaughtOnly && !isCaught) || (!isCaught))}
+                >
                   <div className="dexCountsPill" title="Seen / Caught">
                     👁 {seenCount} • 🧺 {caughtCount}
                   </div>
@@ -381,7 +397,7 @@ export default function Pokedex({
                       <RarityBadge badge={DELTA_BADGE} size={14} />
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

@@ -97,7 +97,21 @@ export function defaultSave() {
 
     trainer: defaultTrainer(),
 
-    balls: { poke: 25, great: 15, ultra: 10, master: 1 },
+    balls: {
+      poke: 25, great: 15, ultra: 10, master: 1,
+      // Special balls (some start unlocked)
+      premier: 5, luxury: 5, dive: 5, dusk: 5,
+      net: 0, love: 0, beast: 0, timer: 0, repeat: 0, fast: 0, moon: 0, dream: 0, nest: 0, quick: 0,
+    },
+
+    // Special ball progression
+    specialBalls: {
+      unlocked: { premier: true, luxury: true, dive: true, dusk: true },
+      equipped: ['premier', 'luxury', 'dive', 'dusk'],
+    },
+
+    // Favorites (Love Ball target)
+    favorites: [null, null, null, null, null],
     moveTokens: 0,
     fusionTokens: 0,
     pendingFusionToken: false,

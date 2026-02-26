@@ -90,6 +90,7 @@ function applyAchievementRules(trainer, event) {
   const unlocks = [];
 
   if (event?.type === 'catch') {
+    const rk = String(event.rarityKey || '').toLowerCase();
     const isShiny = !!event.isShiny;
     const isDelta = !!event.isDelta;
     const buffCount = Math.max(0, Math.floor(event.buffCount ?? 0));
@@ -103,6 +104,13 @@ function applyAchievementRules(trainer, event) {
     }
 
     // Best streak
+    // Common total (used for Nest Ball unlocks)
+    if (rk === 'common') {
+      nextStats.commonCaught = Math.max(0, Math.floor(nextStats.commonCaught ?? 0)) + 1;
+    } else {
+      nextStats.commonCaught = Math.max(0, Math.floor(nextStats.commonCaught ?? 0));
+    }
+
     nextStats.bestCatchStreak = Math.max(
       Math.max(0, Math.floor(nextStats.bestCatchStreak ?? 0)),
       streak
@@ -176,7 +184,7 @@ export function applyCatchProgress(prevTrainer, { rarityKey, isShiny, isDelta, d
   if (!disableAchievements) {
     const a = applyAchievementRules(
       { achievements: nextAchievements, stats: nextStats },
-      { type: 'catch', isShiny, isDelta, buffCount, streak }
+      { type: 'catch', rarityKey, isShiny, isDelta, buffCount, streak }
     );
     nextAchievements = a.nextAchievements;
     nextStats = a.nextStats;

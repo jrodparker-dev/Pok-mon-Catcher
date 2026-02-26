@@ -164,6 +164,15 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   justify-content:space-between;
   gap: 8px;
 }
+
+.ballsArea{
+  margin-top: 12px;
+  display:flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ballsArea .ballsRow{ margin-top: 0; }
 .ballBtn{
   flex:1;
   display:flex;
@@ -182,7 +191,9 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .ballIconImg{
   display:block;
 }
-.ballBtn .ballIconImg,
+/* Large ball images are used only for the throw/caught overlay and big preview.
+ * Button icons should stay a consistent size on both desktop and mobile.
+ */
 .bigBall .ballIconImg,
 .ballOverlay .ballIconImg {
   width: min(70vw, 320px);
@@ -201,8 +212,8 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 }
 
 .ballBtn .ballIconImg {
-  width: 100%;
-  height: 100%;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
   display: block;
   transition: filter .14s ease;
@@ -933,7 +944,7 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   .ballsRow{ gap: 8px; justify-content:center; }
   .ballBtn{ flex: 0 0 68px; padding: 7px 4px; border-radius: 14px; }
   .ballCount{ font-size: 12px; }
-  .ballIcon{ width: 42px; height: 42px; }
+  .ballBtn .ballIconImg{ width: 42px; height: 42px; }
 
   /* --- Unified mobile panels --- */
   .mobileUnified{
@@ -1686,6 +1697,23 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .progressBarOuter{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
 .progressBarInner{height:100%;background:rgba(255,255,255,.55);border-radius:999px}
 .profileSectionTitle{margin-top:14px;font-weight:900;opacity:.95}
+
+/* Favorites + Special Ball equip UI */
+.favRow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.favSlot{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:74px}
+.favBtn{width:100%;text-align:left;justify-content:flex-start}
+.favMeta{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.favBadges{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+.equipRow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.equipSlot{border:1px dashed rgba(255,255,255,.18);background:rgba(0,0,0,.12);border-radius:14px;padding:10px;text-align:center}
+
+.ballPickGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+
+@media (max-width: 720px){
+  .favRow{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .equipRow{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .achList{margin-top:8px;display:flex;flex-direction:column;gap:8px}
 .achRow{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:10px}
 .achUnlocked{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}
@@ -1974,4 +2002,25 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   font-size:18px;
   color:#60a5fa;
   text-shadow:0 6px 10px rgba(0,0,0,0.45);
+}
+
+
+.specialBallsRow{
+  /* Keep the special row styled like the normal balls row.
+   * (Previously this overrode mobile centering and caused the row to shift/cut off.)
+   */
+  margin-top: 0;
+}
+.ballBtn.emptySlot{
+  opacity: 0.35;
+}
+.dexTile{
+  border: none;
+  background: rgba(255,255,255,0.08);
+}
+.dexTile.dexPickMode{
+  cursor: pointer;
+}
+.dexTile.disabled{
+  cursor: not-allowed;
 }

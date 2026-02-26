@@ -10,7 +10,8 @@ import MiniRunSummariesModal from './components/MiniRunSummariesModal.jsx';
 import MiniRunSummaryModal from './components/MiniRunSummaryModal.jsx';
 import MiniRunInfoModal from './components/MiniRunInfoModal.jsx';
 import PokemonDetail from './components/PokemonDetail.jsx';
-import { BALLS, calcCatchChance } from './balls.js';
+import { BALLS, SPECIAL_BALLS, getBallDef, calcCatchChance, computeBallEffect } from './balls.js';
+import { rollRandomBiomeKey } from './biomes.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
 import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, saveActiveMiniRun, clearActiveMiniRun, loadMiniSummaries, saveMiniSummaries, addMiniSummary } from './storage.js';
 import { getEvolutionOptions } from './evolution.js';
@@ -76,6 +77,13 @@ export default function App() {
       encounter: { ...base.encounter, ...(loaded.encounter ?? {}) },
       trainer: { ...base.trainer, ...(loaded.trainer ?? {}) },
       settings: { ...(base.settings ?? {}), ...(loaded.settings ?? {}) },
+      specialBalls: {
+        ...(base.specialBalls ?? {}),
+        ...(loaded.specialBalls ?? {}),
+        unlocked: { ...((base.specialBalls ?? {}).unlocked ?? {}), ...(((loaded.specialBalls ?? {}).unlocked) ?? {}) },
+        equipped: Array.isArray((loaded.specialBalls ?? {}).equipped) ? (loaded.specialBalls.equipped) : ((base.specialBalls ?? {}).equipped ?? []),
+      },
+      favorites: Array.isArray(loaded.favorites) ? loaded.favorites.slice(0, 5) : (base.favorites ?? [null, null, null, null, null]),
       miniRun: loaded.miniRun ?? base.miniRun,
       // ensure pokedex bucket exists
       pokedex: { ...(base.pokedex ?? {}), ...(loaded.pokedex ?? {}) },
@@ -115,6 +123,8 @@ export default function App() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
+  const [exchangeBallKey, setExchangeBallKey] = useState('premier');
+  const [exchangeQty, setExchangeQty] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
   const [miniStartPendingSpawn, setMiniStartPendingSpawn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -128,6 +138,7 @@ export default function App() {
   const [summaryDetail, setSummaryDetail] = useState(null); // { summaryId, uid, index }
   // ✅ NEW: Pokedex modal state
   const [showDex, setShowDex] = useState(false);
+  const [pickFavoriteSlot, setPickFavoriteSlot] = useState(null);
 const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
 
   // NEW: 3 hidden queued encounters behind grass
@@ -142,6 +153,22 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const encounter = save.encounter ?? defaultSave().encounter;
   const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
   const trainer = { ...(defaultSave().trainer ?? {}), ...(save.trainer ?? {}) };
+
+
+// keep exchange selection/qty valid as unlocks or token counts change
+useEffect(() => {
+  const unlocked = save?.specialBalls?.unlocked ?? {};
+  const unlockedKeys = Object.entries(unlocked).filter(([, v]) => !!v).map(([k]) => String(k));
+  if (unlockedKeys.length && !unlocked[exchangeBallKey]) {
+    setExchangeBallKey(unlockedKeys[0]);
+  }
+  const maxQty = Math.floor((save?.moveTokens ?? 0) / 10);
+  setExchangeQty(q => {
+    const next = Math.max(1, Math.floor(Number(q || 1)));
+    return maxQty > 0 ? Math.min(next, maxQty) : 1;
+  });
+}, [save?.specialBalls?.unlocked, save?.moveTokens]);
+
 
   function updateSetting(key, value) {
     setSave(prev => {
@@ -354,6 +381,7 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const [attackBonus, setAttackBonus] = useState(0);
   const [attackAnim, setAttackAnim] = useState(null); // {id, amount}
   const [movesUsedSinceThrow, setMovesUsedSinceThrow] = useState(0);
+  const [ballsThrownThisEncounter, setBallsThrownThisEncounter] = useState(0);
   // Total attacks allowed per encounter across the whole team
   const [attacksLeft, setAttacksLeft] = useState(4);
 
@@ -437,6 +465,15 @@ function grantDailyGiftIfAvailable() {
     balls.ultra = (balls.ultra ?? 0) + 10;
     balls.master = (balls.master ?? 0) + 1;
 
+    // +10 random unlocked special balls
+    const unlocked = prev.specialBalls?.unlocked ?? {};
+    const unlockedKeys = Object.entries(unlocked).filter(([, v]) => !!v).map(([k]) => String(k));
+    for (let i = 0; i < 10; i++) {
+      if (!unlockedKeys.length) break;
+      const k = unlockedKeys[Math.floor(Math.random() * unlockedKeys.length)];
+      balls[k] = (balls[k] ?? 0) + 1;
+    }
+
     return { ...prev, balls, lastDailyGiftKey: key };
   });
 
@@ -446,9 +483,26 @@ function grantDailyGiftIfAvailable() {
   if (already) {
     setMessage('Daily Gift already claimed today.');
   } else {
-    setMessage('Daily Gift claimed: +10 Poké, +10 Great, +10 Ultra, +1 Master!');
+    setMessage('Daily Gift claimed: +10 Poké, +10 Great, +10 Ultra, +1 Master, +10 random unlocked Special Balls!');
   }
 }
+
+function exchangeMoveTokensForSpecialBalls(ballKey, qty) {
+  const key = String(ballKey || '');
+  const n = Math.max(1, Math.floor(Number(qty || 0)));
+  setSave(prev => {
+    const tokens = prev.moveTokens ?? 0;
+    const unlocked = prev.specialBalls?.unlocked ?? {};
+    if (!unlocked[key]) return prev;
+    const maxQty = Math.floor(tokens / 10);
+    if (maxQty <= 0) return prev;
+    const take = Math.min(maxQty, n);
+    const balls = { ...(prev.balls ?? {}) };
+    balls[key] = (balls[key] ?? 0) + take;
+    return { ...prev, moveTokens: tokens - (take * 10), balls };
+  });
+}
+
 
 
   function resetEncounterAssist() {
@@ -456,6 +510,7 @@ function grantDailyGiftIfAvailable() {
     setMoveUsedByUid({});
     setAttackAnim(null);
     setMovesUsedSinceThrow(0);
+    setBallsThrownThisEncounter(0);
     setAttacksLeft(4);
   }
 
@@ -1180,6 +1235,9 @@ function setLockManyPokemon(uids, locked) {
     }
     const toBaseId = toID(evolvedRecord.formId ?? evolvedRecord.speciesId ?? evolvedRecord.name);
 
+    // Net Ball unlock tracking: count evolutions of Bug-type Pokémon (main save only)
+    const evolvedWasBug = Array.isArray(mon?.types) && mon.types.some(t => String(t).toLowerCase() === 'bug');
+
 // ✅ Keep the old base forever + add the new base forever (forms map to base species)
 bumpDexCaughtFromAny(fromBaseId, !!mon.shiny, !!(mon.isDelta ), mon?.rarity);
 bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta ), evolvedRecord?.rarity ?? mon?.rarity);
@@ -1187,9 +1245,27 @@ bumpDexCaughtFromAny(toBaseId, !!mon.shiny, !!(evolvedRecord.isDelta ), evolvedR
 
 
     setSave(prev => {
-      const next = [...(prev.caught ?? [])];
+      const base = defaultSave();
+      const cur = { ...base, ...prev };
+      const next = [...(cur.caught ?? [])];
       next[idx] = evolvedRecord;
-      return { ...prev, caught: next };
+
+      let trainer = cur.trainer ?? base.trainer;
+      let specialBalls = cur.specialBalls ?? base.specialBalls;
+
+      if (mode !== 'mini' && evolvedWasBug) {
+        const stats = { ...(trainer.stats ?? {}) };
+        stats.bugEvolves = Math.max(0, Math.floor(stats.bugEvolves ?? 0)) + 1;
+        trainer = { ...trainer, stats };
+
+        if (stats.bugEvolves >= 25) {
+          const unlocked = { ...(specialBalls.unlocked ?? {}) };
+          if (!unlocked.net) unlocked.net = { unlockedAt: Date.now() };
+          specialBalls = { ...specialBalls, unlocked };
+        }
+      }
+
+      return { ...cur, caught: next, trainer, specialBalls };
     });
   }
 function getBaseDexInfoFromAny(anyIdOrNum) {
@@ -1407,12 +1483,57 @@ const { nextTrainer, achievementUnlocks } = applyCatchProgress(cur.trainer ?? ba
   disableAchievements: (mode === 'mini'),
 });
 
+// --- Special ball unlock checks (main save only) ---
+let nextSpecialBalls = { ...(cur.specialBalls ?? {}) };
+if (mode !== 'mini') {
+  const unlocked = { ...(nextSpecialBalls.unlocked ?? {}) };
+  const now = Date.now();
+  const tryUnlock = (key) => {
+    if (!key) return;
+    if (unlocked[key]) return;
+    unlocked[key] = { unlockedAt: now };
+  };
+
+  const trainerLevel = Math.max(1, Math.floor(nextTrainer?.level ?? 1));
+  if (trainerLevel >= 10) tryUnlock('quick');
+  if (trainerLevel >= 15) tryUnlock('dream');
+  if (trainerLevel >= 20) tryUnlock('moon');
+  if (trainerLevel >= 25) tryUnlock('beast');
+
+  if (dexCaughtAfter >= 250) tryUnlock('repeat');
+
+  const commonTotal = Math.max(0, Math.floor(nextTrainer?.stats?.commonCaught ?? 0));
+  if (commonTotal >= 100) tryUnlock('nest');
+
+  const shinyTotal = Math.max(0, Math.floor(nextTrainer?.stats?.shinyCaught ?? 0));
+  if (shinyTotal >= 50) tryUnlock('fast');
+
+  // Love Ball: if the caught species is currently favorited
+  const fav = Array.isArray(cur.favorites) ? cur.favorites : [];
+  if (typeof dexNum === 'number' && fav.some((x) => Number(x) === Number(dexNum))) {
+    tryUnlock('love');
+  }
+
+  // Timer Ball: if THIS dex entry is now fully complete (all rarities + shiny)
+  const entryKey = (typeof dexNum === 'number') ? String(dexNum) : null;
+  const entry = entryKey ? (dex?.[entryKey] ?? null) : null;
+  if (entry) {
+    const rc = (entry.rarityCaught && typeof entry.rarityCaught === 'object') ? entry.rarityCaught : {};
+    const need = ['common','uncommon','rare','legendary'];
+    const hasAll = need.every((k) => (rc[k] ?? 0) > 0);
+    const hasShiny = (entry.shinyCaught ?? 0) > 0;
+    if (hasAll && hasShiny) tryUnlock('timer');
+  }
+
+  nextSpecialBalls = { ...nextSpecialBalls, unlocked };
+}
+
 const balls2 = { ...(cur.balls ?? {}) };
 if (mode !== 'mini') {
   const add = Array.isArray(achievementUnlocks) ? achievementUnlocks.length : 0;
   if (add > 0) balls2.master = (balls2.master ?? 0) + add;
 }
-return { ...cur, pokedex: dex, trainer: nextTrainer, balls: balls2 };
+return { ...cur, pokedex: dex, trainer: nextTrainer, balls: balls2, specialBalls: nextSpecialBalls };
   });
 }
 
@@ -1507,8 +1628,14 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
   async function rollGrassSlots() {
     try {
-      const mons = await Promise.all([rollOneEncounter({trackSeen:false}), rollOneEncounter({trackSeen:false}), rollOneEncounter({trackSeen:false})]);
-      setGrassSlots(mons);
+      const biomeKeys = [rollRandomBiomeKey(), rollRandomBiomeKey(), rollRandomBiomeKey()];
+      const mons = await Promise.all([
+        rollOneEncounter({ trackSeen: false }),
+        rollOneEncounter({ trackSeen: false }),
+        rollOneEncounter({ trackSeen: false }),
+      ]);
+      const withBiomes = (mons || []).map((m, i) => ({ ...(m || {}), biome: biomeKeys[i] || 'grass' }));
+      setGrassSlots(withBiomes);
     } catch (e) {
       console.error('Failed to roll grass slots', e);
       setGrassSlots([]);
@@ -1557,6 +1684,7 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     setMessage('');
     setStage('ready');
     setWild(picked);
+    setBallsThrownThisEncounter(0);
 
     // Track "seen" ONLY when the player actually chooses an encounter (not on grass previews)
     try {
@@ -2219,7 +2347,7 @@ function viewSavedRun(summary) {
       return;
     }
 
-    const ball = BALLS.find(b => b.key === ballKey);
+    const ball = getBallDef(ballKey);
     if (!ball) return;
 
     // Pre-compute balls-after-this-throw so mini-run ball cap can end AFTER the result is shown.
@@ -2227,13 +2355,11 @@ function viewSavedRun(summary) {
       ...(saveRef.current?.balls ?? save.balls ?? {}),
       [ballKey]: Math.max(0, count - 1),
     };
-    const ballsEmptyAfterThrow =
-      (ballsAfterThrow.poke ?? 0) <= 0 &&
-      (ballsAfterThrow.great ?? 0) <= 0 &&
-      (ballsAfterThrow.ultra ?? 0) <= 0 &&
-      (ballsAfterThrow.master ?? 0) <= 0;
+    const relevantKeys = ['poke', 'great', 'ultra', 'master', ...((saveRef.current?.specialBalls?.equipped ?? save.specialBalls?.equipped ?? []).slice(0, 4))].filter(Boolean);
+    const ballsEmptyAfterThrow = relevantKeys.every((k) => (ballsAfterThrow?.[k] ?? 0) <= 0);
 
     decrementBall(ballKey);
+    setBallsThrownThisEncounter(prev => prev + 1);
 
     setMovesUsedSinceThrow(0);
 
@@ -2246,6 +2372,23 @@ function viewSavedRun(summary) {
 
     const { pityRate, total: effectiveRate } = currentEffectiveCaptureRate();
     let chance = calcCatchChance(effectiveRate, ball);
+
+    // Special ball effects (may force 100% catch or multiply chance)
+    const baseDexNum = Number(wild?.dexNum ?? wild?.num ?? wild?.id ?? 0);
+    const effect = computeBallEffect(ballKey, {
+      wild,
+      biome: wild?.biome,
+      ballsThrownSoFar: ballsThrownThisEncounter,
+      favorites: save.favorites,
+      pokedex: save.pokedex,
+      baseDexNum,
+    });
+    if (effect?.forceCatch) {
+      chance = 1;
+    } else if (effect?.mult) {
+      chance = Math.max(0, Math.min(1, chance * Number(effect.mult)));
+    }
+
     const caught = Math.random() < chance;
 
     window.setTimeout(() => {
@@ -2782,20 +2925,49 @@ bumpDexCaughtFromAny(
                   })()}
                 </div>
 
-                <div className="ballsRow">
-                  {BALLS.map(ball => (
-                    <button
-                      key={ball.key}
-                      className={`ballBtn ${canThrow(ball.key) ? '' : 'disabled'}`}
-                      onClick={() => throwBall(ball.key)}
-                      disabled={!canThrow(ball.key)}
-                      aria-label={`Throw ${ball.label}`}
-                    >
-                      <PokeballIcon variant={ball.key} size={54} />
-                      <div className="ballCount">{save.balls?.[ball.key] ?? 0}</div>
-                    </button>
-                  ))}
-                </div>
+				<div className="ballsArea">
+				  <div className="ballsRow" aria-label="Standard balls">
+				    {BALLS.map(ball => (
+				      <button
+				        key={ball.key}
+				        className={`ballBtn ${canThrow(ball.key) ? '' : 'disabled'}`}
+				        onClick={() => throwBall(ball.key)}
+				        disabled={!canThrow(ball.key)}
+				        aria-label={`Throw ${ball.label}`}
+				      >
+				        <PokeballIcon variant={ball.key} size={54} />
+				        <div className="ballCount">{save.balls?.[ball.key] ?? 0}</div>
+				      </button>
+				    ))}
+				  </div>
+
+				  <div className="ballsRow specialBallsRow" aria-label="Special balls">
+				    {Array.from({ length: 4 }).map((_, i) => {
+				      const key = (save.specialBalls?.equipped ?? [])[i] || null;
+				      if (!key) {
+				        return (
+				          <div key={`empty-${i}`} className="ballBtn emptySlot" aria-hidden="true">
+				            <div className="ballCount"> </div>
+				          </div>
+				        );
+				      }
+				      const def = getBallDef(key);
+				      const label = def?.label || key;
+				      return (
+				        <button
+				          key={`special-${key}-${i}`}
+				          className={`ballBtn ${canThrow(key) ? '' : 'disabled'}`}
+				          onClick={() => throwBall(key)}
+				          disabled={!canThrow(key)}
+				          aria-label={`Throw ${label}`}
+				        >
+				          <PokeballIcon variant={key} size={54} />
+				          <div className="ballCount">{save.balls?.[key] ?? 0}</div>
+				        </button>
+				      );
+				    })}
+				  </div>
+				</div>
 
                 <div className="mobileMovesArea" aria-label="Moves">
                   {!activeMon ? (
@@ -2939,7 +3111,16 @@ bumpDexCaughtFromAny(
       )}
 
       {/* ✅ NEW: Pokédex modal */}
-      <TrainerProfile open={showProfile} onClose={() => setShowProfile(false)} save={save} />
+      <TrainerProfile
+        open={showProfile}
+        onClose={() => setShowProfile(false)}
+        save={save}
+        setSave={setSave}
+        onPickFavoriteSlot={(i) => {
+          setPickFavoriteSlot(i);
+          setShowDex(true);
+        }}
+      />
 
       <NewMiniRunModal
         open={showNewRun}
@@ -2996,10 +3177,23 @@ bumpDexCaughtFromAny(
       {showDex && (
       <Pokedex
     open={showDex}
-    onClose={() => setShowDex(false)}
+    onClose={() => { setShowDex(false); setPickFavoriteSlot(null); }}
     dexList={fullDexList}
     pokedex={save.pokedex ?? {}}
     caughtList={caughtList}
+    pickMode={pickFavoriteSlot !== null}
+    pickCaughtOnly={true}
+    onPickDexNum={(dexNum) => {
+      const slot = pickFavoriteSlot;
+      if (slot === null || slot === undefined) return;
+      setSave(prev => {
+        const fav = Array.isArray(prev.favorites) ? prev.favorites.slice(0, 5) : [null, null, null, null, null];
+        fav[slot] = Number(dexNum);
+        return { ...prev, favorites: fav };
+      });
+      setShowDex(false);
+      setPickFavoriteSlot(null);
+    }}
   />
 )}
 
@@ -3154,6 +3348,72 @@ bumpDexCaughtFromAny(
                 <b>{save.fusionTokens ?? 0}</b>
               </div>
             </div>
+
+
+<div className="settingsGroup">
+  <div className="settingsHeading">Exchange</div>
+  <div className="settingsHint">Trade <b>10</b> Move Tokens for <b>1</b> unlocked Special Ball.</div>
+  {(() => {
+    const unlocked = save?.specialBalls?.unlocked ?? {};
+    const unlockedKeys = Object.entries(unlocked).filter(([, v]) => !!v).map(([k]) => String(k));
+    const maxQty = Math.floor((save?.moveTokens ?? 0) / 10);
+    const labelByKey = Object.fromEntries((SPECIAL_BALLS || []).map(b => [b.key, b.label]));
+    return (
+      <div style={{display:'flex', flexDirection:'column', gap:10}}>
+        <div className="settingsRow" style={{justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+          <span style={{minWidth:90}}>Special Ball</span>
+          <select
+            value={exchangeBallKey}
+            onChange={(e) => setExchangeBallKey(e.target.value)}
+            disabled={!unlockedKeys.length}
+            style={{flex:'1 1 180px', maxWidth:240}}
+          >
+            {unlockedKeys.length ? unlockedKeys.map(k => (
+              <option key={k} value={k}>{labelByKey[k] ?? k}</option>
+            )) : <option value="premier">No unlocked balls</option>}
+          </select>
+
+          <span style={{minWidth:40}}>Qty</span>
+          <input
+            type="number"
+            min={1}
+            max={Math.max(1, maxQty)}
+            value={exchangeQty}
+            onChange={(e) => setExchangeQty(e.target.value)}
+            disabled={maxQty <= 0 || !unlockedKeys.length}
+            style={{width:90}}
+          />
+        </div>
+
+        <input
+          type="range"
+          min={1}
+          max={Math.max(1, maxQty)}
+          value={exchangeQty}
+          onChange={(e) => setExchangeQty(e.target.value)}
+          disabled={maxQty <= 0 || !unlockedKeys.length}
+        />
+
+        <button
+          className="btnSmall"
+          type="button"
+          disabled={maxQty <= 0 || !unlockedKeys.length}
+          onClick={() => {
+            const maxNow = Math.floor((save?.moveTokens ?? 0) / 10);
+            const take = Math.min(Math.max(1, Math.floor(Number(exchangeQty || 1))), maxNow);
+            exchangeMoveTokensForSpecialBalls(exchangeBallKey, take);
+            setMessage(`Exchanged ${take * 10} tokens for ${take} ${labelByKey[exchangeBallKey] ?? 'Special Ball'}(s).`);
+          }}
+        >
+          Exchange
+        </button>
+
+        <div className="settingsHint">You can exchange up to <b>{maxQty}</b> ball(s) right now.</div>
+      </div>
+    );
+  })()}
+</div>
+
 
             <div className="settingsGroup">
               <div className="settingsHeading">Daily Gift</div>
