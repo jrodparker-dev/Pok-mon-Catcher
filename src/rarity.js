@@ -182,7 +182,7 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
   }
 
   // 4) Super-rare bonus buff (0.5% chance) - can exceed normal buff limits
-  if (rng() < 0.905) {
+  if (rng() < 0.005) {
     const superPool = [
       { kind: 'stat-all', amount: 15, superRare: true },
       { kind: 'bst-to-600', superRare: true },

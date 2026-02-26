@@ -1998,10 +1998,8 @@ function viewSavedRun(summary) {
       setStage('idle');
     }
   }
-  const BASE_BALL_KEYS = new Set(['poke','great','ultra','master']);
 
   function canThrow(ballKey) {
-    if (inMiniRun() && !BASE_BALL_KEYS.has(ballKey)) return false;
     return (save.balls?.[ballKey] ?? 0) > 0 && wild && stage === 'ready';
   }
 
@@ -2808,20 +2806,7 @@ bumpDexCaughtFromAny(
                     <RarityBadge badge={wild.badge} size={22} />
                   </div>
 
-                  
-                  {/* Super-rare buff indicator (blue sparkle). Must render above biome overlays. */}
-                  {(wild.buffs ?? []).some(b => b && b.superRare) ? (
-                    <div
-                      className="superRareCorner"
-                      style={{ right: wild.shiny ? 64 : 10 }}
-                      title="Super-rare buff"
-                      aria-label="Super-rare buff"
-                    >
-                      ✦
-                    </div>
-                  ) : null}
-
-{/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
+                  {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
                   {wild.shiny ? (
                     <div className="shinyCorner" title="Shiny" aria-label="Shiny">
                       ✨
@@ -2921,7 +2906,6 @@ bumpDexCaughtFromAny(
 				    ))}
 				  </div>
 
-				  {!inMiniRun() && (
 				  <div className="ballsRow specialBallsRow" aria-label="Special balls">
 				    {Array.from({ length: 4 }).map((_, i) => {
 				      const key = (save.specialBalls?.equipped ?? [])[i] || null;
@@ -2948,7 +2932,6 @@ bumpDexCaughtFromAny(
 				      );
 				    })}
 				  </div>
-				)}
 				</div>
 
                 <div className="mobileMovesArea" aria-label="Moves">
