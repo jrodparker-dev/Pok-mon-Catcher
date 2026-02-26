@@ -101,7 +101,7 @@ export const FORME_SUFFIXES = [
   'tealtera', 'wellspring', 'cornerstone', 'hearthflame',
 
   // genesect drives etc
-  'douse', 'shock', 'sandy', 'unbound', 'burn',
+  'douse', 'shock', 'sandy', 'unbound', 'burn', 'chill', 'zen', 'bond', 'ash',
 
   // poltchageist/sinistcha
   'artisan', 'masterpiece', 'antique',
@@ -227,6 +227,10 @@ export function getShowdownSpriteCandidates(mon) {
   const isShiny = !!mon?.shiny;
 
   const urls = [];
+
+  // If we already resolved a working sprite for this exact key (including fusion choice/shiny),
+  // return it directly so we don't re-probe missing fusion sprite URLs on every render.
+  if (cached) return [cached];
 
   // Fusion sprite candidates (Pokeathlon)
   const fusionUrls = getFusionSpriteUrls(mon);
