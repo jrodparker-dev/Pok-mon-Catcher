@@ -1,3 +1,4 @@
+import {toID} from './pokeapi.js';
 // src/spriteLookup.js
 // Shared Pokémon Showdown sprite lookup with lightweight in-memory caching.
 // - Builds a prioritized list of candidate sprite URLs (animated + PNG).
@@ -25,16 +26,32 @@ export function getPokeathlonFusionNum(formId, natDexNum) {
   return null;
 }
 
+const fusionSpriteUrlCache = new Map();
+
 export function getFusionSpriteUrls(mon) {
   if (!mon?.isFusion) return null;
   const fm = mon?.fusionMeta || {};
-  const aNum = getPokeathlonFusionNum(fm.baseFormId, fm.baseDexId);
-  const bNum = getPokeathlonFusionNum(fm.otherFormId, fm.otherDexId);
+  const baseFormId = fm.baseFormId;
+  const otherFormId = fm.otherFormId;
+  const baseDexId = fm.baseDexId;
+  const otherDexId = fm.otherDexId;
+
+  if (!baseFormId || !otherFormId) return null;
+
+  const key = `${baseFormId}__${otherFormId}`;
+  const cached = fusionSpriteUrlCache.get(key);
+  if (cached) return cached;
+
+  const aNum = getPokeathlonFusionNum(baseFormId, baseDexId);
+  const bNum = getPokeathlonFusionNum(otherFormId, otherDexId);
   if (!aNum || !bNum) return null;
-  return {
+
+  const result = {
     primary: `${POKEATHLON_FUSION_BASE}/${aNum}.${bNum}.png`,
     flipped: `${POKEATHLON_FUSION_BASE}/${bNum}.${aNum}.png`,
   };
+  fusionSpriteUrlCache.set(key, result);
+  return result;
 }
 
 
@@ -108,28 +125,25 @@ export function sanitizeId(x) {
 // IMPORTANT: sprite id should NEVER include "__shiny".
 // "__shiny" is for cache key only.
 export function getSpriteId(mon) {
-  // Try a few sources, but NEVER prefer a pure numeric id if we have
-  // any string id available (name/form/species).
-  const sources = [
-    mon?.formId,
-    mon?.speciesId,
-    mon?.dexId,
-    mon?.name,
+  if (!mon) return 'unknown';
+  // Allow callers to override the cache identity (useful for fusions / alternates)
+  if (mon.spriteIdOverride) return String(mon.spriteIdOverride);
 
-    mon?.id,
-  ];
+  // Fusions: keep cache keys isolated so we don't leak fusion sprites onto base species.
+  // Also include the current fusionSpriteChoice so toggling doesn't get "stuck" on a cached URL.
+  if (mon.fusionMeta?.baseFormId && mon.fusionMeta?.otherFormId) {
+    const choice = mon.fusionSpriteChoice || 'base';
+    return `fusion:${mon.fusionMeta.baseFormId}__${mon.fusionMeta.otherFormId}__${choice}`;
+  }
 
-  // Normalize + sanitize each
-  const cleaned = sources
-    .map(v => (v == null ? '' : String(v).trim().split('|')[0]))
-    .map(sanitizeId)
-    .filter(Boolean);
+  // Older fusion shape (if present)
+  if (mon.isFusion && mon.fusionBase && mon.fusionPartner) {
+    const choice = mon.fusionSpriteChoice || 'base';
+    return `fusion:${toID(mon.fusionBase)}__${toID(mon.fusionPartner)}__${choice}`;
+  }
 
-  if (!cleaned.length) return '';
-
-  // Prefer the first non-numeric candidate (e.g. "wormadamtrash")
-  const nonNumeric = cleaned.find(x => !/^\d+$/.test(x));
-  return nonNumeric || cleaned[0]; // if literally all we have is digits, use it as last resort
+  const baseId = toID(mon.formId || mon.dexId || mon.name || '');
+  return baseId || 'unknown';
 }
 
 function getCacheKey(mon) {

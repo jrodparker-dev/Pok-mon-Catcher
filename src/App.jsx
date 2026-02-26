@@ -391,6 +391,18 @@ function todayKey() {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
+
+function setFusionSpriteChoice(uid, choice) {
+  if (!uid) return;
+  setSave(prev => {
+    const caught = (prev.caught || []).map(p => {
+      if (p.uid !== uid) return p;
+      return { ...p, fusionSpriteChoice: choice };
+    });
+    return { ...prev, caught };
+  });
+}
+
 function markPokedexCaught(baseIdRaw, { shiny = false } = {}) {
   const baseId = toID(baseIdRaw);
   if (!baseId) return;
@@ -2918,6 +2930,7 @@ bumpDexCaughtFromAny(
           onSetActiveTeam={setActiveTeam}
           onClose={() => setShowPC(false)}
           onEvolve={evolveCaught}
+        onSetFusionSpriteChoice={setFusionSpriteChoice}
         />
       )}
 
@@ -2964,6 +2977,7 @@ bumpDexCaughtFromAny(
       {summaryDetail && openSummary?.saveSnapshot ? (
         <PokemonDetail
           mon={(openSummary.saveSnapshot.caught ?? [])[summaryDetail.index]}
+          onSetFusionSpriteChoice={setFusionSpriteChoice}
           onClose={() => setSummaryDetail(null)}
           onEvolve={(uid, targetDexId) => evolveCaughtInSummary(openSummary.id, uid, targetDexId)}
           teamUids={[]} // run summary is separate from team management

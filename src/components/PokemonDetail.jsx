@@ -60,6 +60,14 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
   const [fusionAvail, setFusionAvail] = useState({ primary: false, flipped: false });
   const [fusionMenuOpen, setFusionMenuOpen] = useState(false);
 
+  const [localFusionSpriteChoice, setLocalFusionSpriteChoice] = useState(() => (mon?.fusionSpriteChoice || 'base'));
+  useEffect(() => {
+    // Keep local choice in sync when a different Pokémon is opened
+    setLocalFusionSpriteChoice(mon?.fusionSpriteChoice || 'base');
+  }, [mon?.uid]);
+
+  const effectiveFusionSpriteChoice = onSetFusionSpriteChoice ? (mon?.fusionSpriteChoice || 'base') : localFusionSpriteChoice;
+
   useEffect(() => {
     setFusionMenuOpen(false);
     const urls = getFusionSpriteUrls(mon);
@@ -177,7 +185,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 180, textAlign: 'center' }}>
             <div style={{ position: 'relative', display: 'inline-block' }}>
-              <SpriteWithFallback mon={mon} className="gridSprite" />
+              <SpriteWithFallback mon={{...mon, fusionSpriteChoice: effectiveFusionSpriteChoice}} className="gridSprite" />
 
               {(mon?.isFusion && fusionAvail.primary && fusionAvail.flipped) ? (
                 <>
@@ -206,8 +214,10 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
                   {fusionMenuOpen ? (
                     <div style={{
                       position: 'absolute',
-                      right: 4,
-                      bottom: 30,
+                      left: '100%',
+                      bottom: 4,
+                      marginLeft: 8,
+                      transform: 'translateY(-100%)',
                       background: 'rgba(0,0,0,0.75)',
                       border: '1px solid rgba(255,255,255,0.25)',
                       borderRadius: 10,

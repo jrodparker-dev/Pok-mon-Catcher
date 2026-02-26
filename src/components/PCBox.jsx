@@ -77,7 +77,11 @@ function savePCBoxPrefs(prefs) {
     window.localStorage.setItem(PCBOX_PREFS_KEY, JSON.stringify(prefs || {}));
   } catch {}
 }
-export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught }) {
+export default function PCBox({
+  caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
+  onSetFusionOtherName,
+  onSetFusionSpriteChoice,
+}) {
   const prefs = useMemo(() => loadPCBoxPrefs(), []);
   const [selectedUid, setSelectedUid] = useState(null);
   const [query, setQuery] = useState(() => String(prefs.query ?? ''));
@@ -529,6 +533,8 @@ export default function PCBox({ caughtList, onClose, onEvolve, teamUids, onToggl
           onReplaceMove={onReplaceMove}
           onRelease={onRelease}
           onToggleLock={onToggleLock}
+          onSetFusionOtherName={onSetFusionOtherName}
+          onSetFusionSpriteChoice={onSetFusionSpriteChoice}
           fusionTokens={fusionTokens}
           onStartFuse={onStartFuse ? (uid) => { onStartFuse(uid); setFuseBaseUid(uid); setFusePickUid(null); } : null}
         />
