@@ -737,6 +737,10 @@ function confirmFusion(uidA, uidB) {
       const tiers = ['common','uncommon','rare','legendary'];
       const aR = String(a.rarity || '').toLowerCase();
       const bR = String(b.rarity || '').toLowerCase();
+      const highestIdx = Math.max(
+  tiers.indexOf(aR),
+  tiers.indexOf(bR)
+);
       let rarity = aR;
       let rolledUpgrade = false;
       let cannotUpgradeBonus = false;
@@ -754,7 +758,7 @@ function confirmFusion(uidA, uidB) {
           }
         }
       } else {
-        rarity = (Math.random() < 0.5) ? aR : bR;
+        rarity = tiers[Math.max(0, highestIdx - 1)];
       }
 
       // Choose orientation to maximize BST (base provides typing + 2 moves + 3 stats)
