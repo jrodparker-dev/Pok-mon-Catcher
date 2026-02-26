@@ -2808,7 +2808,20 @@ bumpDexCaughtFromAny(
                     <RarityBadge badge={wild.badge} size={22} />
                   </div>
 
-                  {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
+                  
+                  {/* Super-rare buff indicator (blue sparkle). Must render above biome overlays. */}
+                  {(wild.buffs ?? []).some(b => b && b.superRare) ? (
+                    <div
+                      className="superRareCorner"
+                      style={{ right: wild.shiny ? 64 : 10 }}
+                      title="Super-rare buff"
+                      aria-label="Super-rare buff"
+                    >
+                      ✦
+                    </div>
+                  ) : null}
+
+{/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
                   {wild.shiny ? (
                     <div className="shinyCorner" title="Shiny" aria-label="Shiny">
                       ✨

@@ -1999,9 +1999,20 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   z-index:5;
 }
 .superRareCorner{
-  font-size:18px;
-  color:#60a5fa;
-  text-shadow:0 6px 10px rgba(0,0,0,0.45);
+  position:absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6; /* above biome overlays and other corner UI */
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(96,165,250,.14);
+  border: 1px solid rgba(96,165,250,.45);
+  color: rgba(96,165,250,.98);
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: .2px;
+  backdrop-filter: blur(6px);
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
 }
 
 
