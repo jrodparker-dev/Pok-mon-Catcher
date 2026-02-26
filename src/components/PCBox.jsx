@@ -9,16 +9,52 @@ import pokeBallImg from '../assets/balls/pokeball.png'
 import greatBallImg from '../assets/balls/greatball.png'
 import ultraBallImg from '../assets/balls/ultraball.png'
 import masterBallImg from '../assets/balls/masterball.png'
+import premierBallImg from '../assets/balls/special/premier.png'
+import luxuryBallImg from '../assets/balls/special/luxury.png'
+import diveBallImg from '../assets/balls/special/dive.png'
+import duskBallImg from '../assets/balls/special/dusk.png'
+import netBallImg from '../assets/balls/special/net.png'
+import loveBallImg from '../assets/balls/special/love.png'
+import beastBallImg from '../assets/balls/special/beast.png'
+import repeatBallImg from '../assets/balls/special/repeat.png'
+import timerBallImg from '../assets/balls/special/timer.png'
+import fastBallImg from '../assets/balls/special/fast.png'
+import moonBallImg from '../assets/balls/special/moon.png'
+import dreamBallImg from '../assets/balls/special/dream.png'
+import nestBallImg from '../assets/balls/special/nest.png'
+import quickBallImg from '../assets/balls/special/quick.png'
 
 function ballImgFromKey(key) {
+  // Standard + special balls for PC Box watermark
   switch (key) {
+    // Base balls
     case 'great': return greatBallImg;
     case 'ultra': return ultraBallImg;
     case 'master': return masterBallImg;
     case 'poke':
-    default: return pokeBallImg;
+      return pokeBallImg;
+
+    // Special balls
+    case 'premier': return premierBallImg;
+    case 'luxury': return luxuryBallImg;
+    case 'dive': return diveBallImg;
+    case 'dusk': return duskBallImg;
+    case 'net': return netBallImg;
+    case 'love': return loveBallImg;
+    case 'beast': return beastBallImg;
+    case 'repeat': return repeatBallImg;
+    case 'timer': return timerBallImg;
+    case 'fast': return fastBallImg;
+    case 'moon': return moonBallImg;
+    case 'dream': return dreamBallImg;
+    case 'nest': return nestBallImg;
+    case 'quick': return quickBallImg;
+
+    default:
+      return pokeBallImg;
   }
 }
+
 
 function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
   const [tick, setTick] = React.useState(0);
