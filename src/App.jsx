@@ -392,6 +392,44 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
     }
   }
 
+  // Replace a team member (used by PC Box / details when team is full)
+  function replaceTeamMember(uidToRemove, uidToAdd) {
+    if (!uidToAdd) return;
+    setSave(prev => {
+      const base = defaultSave();
+      const cur = { ...base, ...prev };
+      const team = Array.isArray(cur.teamUids) ? cur.teamUids.slice(0, 3) : [];
+      const removeUid = uidToRemove || null;
+      const addUid = uidToAdd;
+
+      // Remove any existing instance of addUid to avoid duplicates
+      let next = team.filter(u => u && u !== addUid);
+
+      const idx = removeUid ? next.indexOf(removeUid) : -1;
+      if (idx >= 0) {
+        next[idx] = addUid;
+      } else {
+        if (next.length < 3) next.push(addUid);
+        else next[0] = addUid;
+      }
+
+      // Uniq + cap
+      const uniq = [];
+      for (const u of next) {
+        if (!u) continue;
+        if (!uniq.includes(u)) uniq.push(u);
+      }
+
+      const prevActive = cur.activeTeamUid ?? null;
+      const activeTeamUid =
+        (removeUid && prevActive === removeUid) ? addUid :
+        (uniq.includes(prevActive) ? prevActive : (uniq[0] ?? null));
+
+      return { ...cur, teamUids: uniq.slice(0, 3), activeTeamUid };
+    });
+  }
+
+
   function setActiveTeam(uidToActivate) {
     setSave(prev => ({ ...prev, activeTeamUid: uidToActivate }));
   }
@@ -3185,6 +3223,7 @@ bumpDexCaughtFromAny(
           teamUids={teamUids}
           activeTeamUid={activeTeamUid}
           onToggleTeam={toggleTeam}
+          onReplaceTeamMember={replaceTeamMember}
           onSetActiveTeam={setActiveTeam}
           onClose={() => setShowPC(false)}
           onEvolve={evolveCaught}

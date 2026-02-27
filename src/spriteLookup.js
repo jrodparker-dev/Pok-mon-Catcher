@@ -17,12 +17,18 @@ function toKey(x) {
   return String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-export function getPokeathlonFusionNum(formId, natDexNum) {
+export function getPokeathlonFusionNum(formId, natDexNum, opts = {}) {
+  const { allowNatDexFallback = true } = (opts && typeof opts === 'object') ? opts : {};
   const k = toKey(formId);
   const mapped = pokeathlonFusionNums?.[k];
   // The uploaded map includes some out-of-range entries (>= 800) for other contexts.
   if (typeof mapped === 'number' && mapped > 0 && mapped < 800) return mapped;
-  if (typeof natDexNum === 'number' && natDexNum > 0) return natDexNum;
+
+  // Historically we fell back to nat dex numbers. For fusion sprite lookups, this creates
+  // incorrect "fusion" requests when a name isn't present in the numbering map.
+  // Callers can opt-in to the old fallback if they truly want it.
+  if (allowNatDexFallback && typeof natDexNum === 'number' && natDexNum > 0) return natDexNum;
+
   return null;
 }
 
@@ -42,8 +48,8 @@ export function getFusionSpriteUrls(mon) {
   const cached = fusionSpriteUrlCache.get(key);
   if (cached) return cached;
 
-  const aNum = getPokeathlonFusionNum(baseFormId, baseDexId);
-  const bNum = getPokeathlonFusionNum(otherFormId, otherDexId);
+  const aNum = getPokeathlonFusionNum(baseFormId, baseDexId, { allowNatDexFallback: false });
+  const bNum = getPokeathlonFusionNum(otherFormId, otherDexId, { allowNatDexFallback: false });
   if (!aNum || !bNum) return null;
 
   const result = {

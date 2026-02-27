@@ -114,13 +114,20 @@ function savePCBoxPrefs(prefs) {
   } catch {}
 }
 export default function PCBox({
-  caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
+  caughtList, onClose, onEvolve, teamUids, onToggleTeam, onReplaceTeamMember, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
   onUnfuse,
   onSetFusionOtherName,
   onSetFusionSpriteChoice,
 }) {
   const prefs = useMemo(() => loadPCBoxPrefs(), []);
   const [selectedUid, setSelectedUid] = useState(null);
+
+  const teamMons = useMemo(() => {
+    const map = new Map((Array.isArray(caughtList) ? caughtList : []).map(m => [m?.uid, m]));
+    const uids = Array.isArray(teamUids) ? teamUids.slice(0, 3) : [];
+    return uids.map(u => map.get(u)).filter(Boolean);
+  }, [caughtList, teamUids]);
+
   const [query, setQuery] = useState(() => String(prefs.query ?? ''));
   const [rarityChecks, setRarityChecks] = useState(() => (prefs.rarityChecks && typeof prefs.rarityChecks === 'object') ? prefs.rarityChecks : ({ common: false, uncommon: false, rare: false, legendary: false, delta: false }));
   const [shinyOnly, setShinyOnly] = useState(!!prefs.shinyOnly);
@@ -565,7 +572,9 @@ export default function PCBox({
           onClose={() => setSelectedUid(null)}
           onEvolve={onEvolve ? (uid, targetDexId) => onEvolve(uid, targetDexId) : null}
           teamUids={teamUids}
+          teamMons={teamMons}
           onToggleTeam={onToggleTeam}
+          onReplaceTeamMember={onReplaceTeamMember}
           moveTokens={moveTokens}
           onReplaceMove={onReplaceMove}
           onRelease={onRelease}
