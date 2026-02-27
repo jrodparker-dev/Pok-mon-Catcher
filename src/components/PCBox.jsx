@@ -115,6 +115,7 @@ function savePCBoxPrefs(prefs) {
 }
 export default function PCBox({
   caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
+  onUnfuse,
   onSetFusionOtherName,
   onSetFusionSpriteChoice,
 }) {
@@ -573,6 +574,7 @@ export default function PCBox({
           onSetFusionSpriteChoice={onSetFusionSpriteChoice}
           fusionTokens={fusionTokens}
           onStartFuse={onStartFuse ? (uid) => { onStartFuse(uid); setFuseBaseUid(uid); setFusePickUid(null); } : null}
+          onUnfuse={onUnfuse}
         />
       )}
     </>

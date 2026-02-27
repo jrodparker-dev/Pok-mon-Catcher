@@ -55,7 +55,7 @@ function SpriteWithFallback({ mon, className }) {
   );
 }
 
-export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onSetFusionSpriteChoice, onStartFuse, fusionTokens }) {
+export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onSetFusionSpriteChoice, onStartFuse, onUnfuse, fusionTokens }) {
   // Fusion sprite availability + UI (only shown if BOTH orientations exist).
   const [fusionAvail, setFusionAvail] = useState({ primary: false, flipped: false });
   const [fusionMenuOpen, setFusionMenuOpen] = useState(false);
@@ -522,6 +522,26 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
               title={canEvolve ? "Only fully evolved Pokémon can be fused." : "Fuse this Pokémon with another (costs 1 Fusion Token)"}
             >
               Fuse
+            </button>
+          ) : null}
+
+          {onUnfuse && mon?.isFusion ? (
+            <button
+              className="btnSmall"
+              onClick={() => {
+                if (!mon?.fusionParts?.a || !mon?.fusionParts?.b) {
+                  alert("This fusion was created before Unfuse support existed, so it can't be undone.");
+                  return;
+                }
+                const ok = window.confirm('Unfuse this Pokémon? You will get back both original Pokémon (with their buffs) and your Fusion Token will be refunded.');
+                if (!ok) return;
+                onUnfuse(mon.uid);
+                onClose();
+              }}
+              type="button"
+              title="Undo this fusion and refund the Fusion Token"
+            >
+              Unfuse
             </button>
           ) : null}
 

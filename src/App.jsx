@@ -745,6 +745,16 @@ function confirmFusion(uidA, uidB) {
       if (!a || !b) return { ...prev, pendingFusionToken: false };
       if (a.uid === b.uid) return { ...prev, pendingFusionToken: false };
 
+      // Deep-clone parents so we can support an exact Unfuse later.
+      // (structuredClone is available in modern browsers; fall back safely if not.)
+      const deepClone = (obj) => {
+        try {
+          // eslint-disable-next-line no-undef
+          if (typeof structuredClone === 'function') return structuredClone(obj);
+        } catch {}
+        return JSON.parse(JSON.stringify(obj));
+      };
+
       // Determine offspring shiny chance
       const aSh = !!a.shiny;
       const bSh = !!b.shiny;
@@ -959,6 +969,13 @@ function confirmFusion(uidA, uidB) {
         caughtBall: base.caughtBall ?? null,
         caughtAt: Date.now(),
         fusedFrom: [a.uid, b.uid],
+
+        // Store the full original records so we can undo the fusion perfectly.
+        // Note: Older fusions (created before this patch) won't have this.
+        fusionParts: {
+          a: deepClone(a),
+          b: deepClone(b),
+        },
       };
 
       // Remove parents, add child
@@ -970,6 +987,37 @@ function confirmFusion(uidA, uidB) {
       const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
 
       return { ...prev, caught: nextCaught, teamUids, activeTeamUid, pendingFusionToken: false };
+    });
+  }
+
+  // Unfuse a fused Pokémon back into its original two Pokémon.
+  // Requires fusionParts to exist (new fusions created after this patch).
+  function unfuseFusion(childUid) {
+    if (!childUid) return;
+    setSave(prev => {
+      const caught = Array.isArray(prev.caught) ? prev.caught : [];
+      const child = caught.find(m => m?.uid === childUid);
+      if (!child?.fusionParts?.a || !child?.fusionParts?.b) return prev;
+
+      const a = child.fusionParts.a;
+      const b = child.fusionParts.b;
+
+      // Remove child
+      const nextCaught = caught.filter(m => m?.uid !== childUid);
+      // Re-add parents (front of PC)
+      nextCaught.unshift(b);
+      nextCaught.unshift(a);
+
+      // Remove child from team if present
+      const teamUids = Array.isArray(prev.teamUids)
+        ? prev.teamUids.filter(x => x !== childUid)
+        : [];
+      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
+
+      // Refund fusion token
+      const fusionTokens = (prev.fusionTokens ?? 0) + 1;
+
+      return { ...prev, caught: nextCaught, teamUids, activeTeamUid, fusionTokens };
     });
   }
 
@@ -3065,6 +3113,7 @@ bumpDexCaughtFromAny(
           caughtList={caughtList}
           moveTokens={save.moveTokens ?? 0}
           fusionTokens={save.fusionTokens ?? 0}
+          onUnfuse={unfuseFusion}
           onRefreshAllCaught={refreshAllCaughtDebug}
           onStartFuse={startFusion}
           onCancelFuse={cancelFusion}
