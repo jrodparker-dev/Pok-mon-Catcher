@@ -123,8 +123,6 @@ export default function App() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
-  const [exchangeBallKey, setExchangeBallKey] = useState('premier');
-  const [exchangeQty, setExchangeQty] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
   const [miniStartPendingSpawn, setMiniStartPendingSpawn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -392,6 +390,44 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
     }
   }
 
+
+  // Replace a team member (used by PC Box when team is full)
+  function replaceTeamMember(uidToRemove, uidToAdd) {
+    if (!uidToAdd) return;
+    setSave(prev => {
+      const base = defaultSave();
+      const cur = { ...base, ...prev };
+      const team = Array.isArray(cur.teamUids) ? cur.teamUids.slice(0, 3) : [];
+      const removeUid = uidToRemove || null;
+      const addUid = uidToAdd;
+
+      // Remove any existing instance of addUid to avoid duplicates
+      let next = team.filter(u => u && u !== addUid);
+
+      const idx = removeUid ? next.indexOf(removeUid) : -1;
+      if (idx >= 0) {
+        next[idx] = addUid;
+      } else {
+        if (next.length < 3) next.push(addUid);
+        else next[0] = addUid;
+      }
+
+      // Uniq + cap
+      const uniq = [];
+      for (const u of next) {
+        if (!u) continue;
+        if (!uniq.includes(u)) uniq.push(u);
+      }
+
+      const prevActive = cur.activeTeamUid ?? null;
+      const activeTeamUid =
+        (removeUid && prevActive === removeUid) ? addUid :
+        (uniq.includes(prevActive) ? prevActive : (uniq[0] ?? null));
+
+      return { ...cur, teamUids: uniq.slice(0, 3), activeTeamUid };
+    });
+  }
+
   function setActiveTeam(uidToActivate) {
     setSave(prev => ({ ...prev, activeTeamUid: uidToActivate }));
   }
@@ -470,34 +506,6 @@ function grantDailyGiftIfAvailable() {
     setMessage('Daily Gift claimed: +10 Poké, +10 Great, +10 Ultra, +1 Master, +10 random unlocked Special Balls!');
   }
 }
-
-  function exchangeMoveTokensForSpecialBalls(ballKey, qty) {
-    const key = String(ballKey || '').toLowerCase();
-    const take = Math.max(1, Math.floor(Number(qty || 1)));
-    if (!key) return;
-    if (!unlockedSpecial[key]) {
-      setMessage('That ball is locked.');
-      return;
-    }
-    const cost = take * 5;
-    if ((save?.moveTokens ?? 0) < cost) {
-      setMessage('Not enough Move Tokens.');
-      return;
-    }
-    setSave(prev => {
-      const prevTokens = prev.moveTokens ?? 0;
-      if (prevTokens < cost) return prev;
-      const nextBalls = { ...(prev.balls ?? {}) };
-      nextBalls[key] = (nextBalls[key] ?? 0) + take;
-      return {
-        ...prev,
-        moveTokens: prevTokens - cost,
-        balls: nextBalls,
-      };
-    });
-  }
-
-
 
 
   function resetEncounterAssist() {
@@ -775,16 +783,6 @@ function confirmFusion(uidA, uidB) {
       if (!a || !b) return { ...prev, pendingFusionToken: false };
       if (a.uid === b.uid) return { ...prev, pendingFusionToken: false };
 
-      // Deep-clone parents so we can support an exact Unfuse later.
-      // (structuredClone is available in modern browsers; fall back safely if not.)
-      const deepClone = (obj) => {
-        try {
-          // eslint-disable-next-line no-undef
-          if (typeof structuredClone === 'function') return structuredClone(obj);
-        } catch {}
-        return JSON.parse(JSON.stringify(obj));
-      };
-
       // Determine offspring shiny chance
       const aSh = !!a.shiny;
       const bSh = !!b.shiny;
@@ -999,13 +997,6 @@ function confirmFusion(uidA, uidB) {
         caughtBall: base.caughtBall ?? null,
         caughtAt: Date.now(),
         fusedFrom: [a.uid, b.uid],
-
-        // Store the full original records so we can undo the fusion perfectly.
-        // Note: Older fusions (created before this patch) won't have this.
-        fusionParts: {
-          a: deepClone(a),
-          b: deepClone(b),
-        },
       };
 
       // Remove parents, add child
@@ -1017,37 +1008,6 @@ function confirmFusion(uidA, uidB) {
       const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
 
       return { ...prev, caught: nextCaught, teamUids, activeTeamUid, pendingFusionToken: false };
-    });
-  }
-
-  // Unfuse a fused Pokémon back into its original two Pokémon.
-  // Requires fusionParts to exist (new fusions created after this patch).
-  function unfuseFusion(childUid) {
-    if (!childUid) return;
-    setSave(prev => {
-      const caught = Array.isArray(prev.caught) ? prev.caught : [];
-      const child = caught.find(m => m?.uid === childUid);
-      if (!child?.fusionParts?.a || !child?.fusionParts?.b) return prev;
-
-      const a = child.fusionParts.a;
-      const b = child.fusionParts.b;
-
-      // Remove child
-      const nextCaught = caught.filter(m => m?.uid !== childUid);
-      // Re-add parents (front of PC)
-      nextCaught.unshift(b);
-      nextCaught.unshift(a);
-
-      // Remove child from team if present
-      const teamUids = Array.isArray(prev.teamUids)
-        ? prev.teamUids.filter(x => x !== childUid)
-        : [];
-      const activeTeamUid = teamUids.includes(prev.activeTeamUid) ? prev.activeTeamUid : (teamUids[0] ?? null);
-
-      // Refund fusion token
-      const fusionTokens = (prev.fusionTokens ?? 0) + 1;
-
-      return { ...prev, caught: nextCaught, teamUids, activeTeamUid, fusionTokens };
     });
   }
 
@@ -1750,27 +1710,6 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   }
 
 
-  // --- Backpack exchange (Move Tokens -> Special Balls) ---
-  const unlockedSpecial = save?.specialBalls?.unlocked ?? {};
-  const unlockedSpecialKeys = Object.keys(unlockedSpecial).filter(k => !!unlockedSpecial[k]);
-  const maxExchangeQty = Math.floor((save?.moveTokens ?? 0) / 5);
-
-  useEffect(() => {
-    // Keep exchange selection valid as unlocks change
-    if (unlockedSpecialKeys.length && !unlockedSpecial[exchangeBallKey]) {
-      setExchangeBallKey(unlockedSpecialKeys[0]);
-    }
-    // Clamp qty to affordability (and minimum 1)
-    setExchangeQty(q => {
-      const n = Math.max(1, Math.floor(Number(q || 1)));
-      const maxNow = Math.max(1, maxExchangeQty || 1);
-      return Math.min(n, maxNow);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save?.moveTokens, save?.specialBalls, unlockedSpecialKeys.join('|')]);
-
-
-
   function closeSettings() {
     setShowSettings(false);
     // When a new mini-run starts, show settings first, then spawn once settings is closed.
@@ -2405,11 +2344,6 @@ function viewSavedRun(summary) {
   async function throwBall(ballKey) {
     if (!wild || stage !== 'ready') return;
 
-    if (inMiniRun() && !['poke','great','ultra','master'].includes(String(ballKey))) {
-      setMessage('Special balls are disabled in mini-runs.');
-      return;
-    }
-
     const count = save.balls?.[ballKey] ?? 0;
     if (count <= 0) {
       setMessage('You are out of that ball type!');
@@ -2911,20 +2845,11 @@ bumpDexCaughtFromAny(
                   </div>
 
                   {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
-                  {(() => {
-                    const isSuperRare = Array.isArray(wild?.buffs) && wild.buffs.some(b => b?.superRare);
-                    if (!wild?.shiny && !isSuperRare) return null;
-                    return (
-                      <div className="sparkleCornerStack" aria-hidden="true">
-                        {wild.shiny ? (
-                          <div className="shinyCorner" title="Shiny" aria-label="Shiny">✨</div>
-                        ) : null}
-                        {isSuperRare ? (
-                          <div className="superRareCorner" title="Super-rare buff" aria-label="Super-rare buff">✦</div>
-                        ) : null}
-                      </div>
-                    );
-                  })()}
+                  {wild.shiny ? (
+                    <div className="shinyCorner" title="Shiny" aria-label="Shiny">
+                      ✨
+                    </div>
+                  ) : null}
 
                   {encounterStatus ? (
                     <div
@@ -3019,7 +2944,6 @@ bumpDexCaughtFromAny(
 				    ))}
 				  </div>
 
-				  {!inMiniRun() && (
 				  <div className="ballsRow specialBallsRow" aria-label="Special balls">
 				    {Array.from({ length: 4 }).map((_, i) => {
 				      const key = (save.specialBalls?.equipped ?? [])[i] || null;
@@ -3046,8 +2970,6 @@ bumpDexCaughtFromAny(
 				      );
 				    })}
 				  </div>
-				  )}
-
 				</div>
 
                 <div className="mobileMovesArea" aria-label="Moves">
@@ -3172,7 +3094,6 @@ bumpDexCaughtFromAny(
           caughtList={caughtList}
           moveTokens={save.moveTokens ?? 0}
           fusionTokens={save.fusionTokens ?? 0}
-          onUnfuse={unfuseFusion}
           onRefreshAllCaught={refreshAllCaughtDebug}
           onStartFuse={startFusion}
           onCancelFuse={cancelFusion}
@@ -3185,6 +3106,7 @@ bumpDexCaughtFromAny(
           teamUids={teamUids}
           activeTeamUid={activeTeamUid}
           onToggleTeam={toggleTeam}
+          onReplaceTeamMember={replaceTeamMember}
           onSetActiveTeam={setActiveTeam}
           onClose={() => setShowPC(false)}
           onEvolve={evolveCaught}
@@ -3431,64 +3353,7 @@ bumpDexCaughtFromAny(
               </div>
             </div>
 
-            
             <div className="settingsGroup">
-              <div className="settingsHeading">Exchange</div>
-              <div className="settingsHint">Exchange <b>5</b> Move Tokens for <b>1</b> unlocked Special Ball.</div>
-
-              <div className="settingsRow" style={{gap:10, alignItems:'center'}}>
-                <label style={{minWidth:110}}>Ball</label>
-                <select
-                  value={exchangeBallKey}
-                  onChange={(e) => setExchangeBallKey(e.target.value)}
-                  style={{flex:1}}
-                >
-                  {unlockedSpecialKeys.length ? unlockedSpecialKeys.map(k => (
-                    <option key={k} value={k}>{getBallDef(k)?.label ?? k}</option>
-                  )) : (
-                    <option value="premier" disabled>No unlocked special balls</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="settingsRow" style={{gap:10, alignItems:'center'}}>
-                <label style={{minWidth:110}}>Qty</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, maxExchangeQty)}
-                  value={exchangeQty}
-                  onChange={(e) => setExchangeQty(e.target.value)}
-                  style={{width:90}}
-                />
-                <input
-                  type="range"
-                  min={1}
-                  max={Math.max(1, maxExchangeQty)}
-                  value={exchangeQty}
-                  onChange={(e) => setExchangeQty(e.target.value)}
-                  style={{flex:1}}
-                />
-              </div>
-
-              <button
-                className="btnSmall"
-                type="button"
-                disabled={!unlockedSpecialKeys.length || (save.moveTokens ?? 0) < 5}
-                onClick={() => {
-                  const maxNow = Math.max(1, Math.floor((save.moveTokens ?? 0) / 5));
-                  const take = Math.min(Math.max(1, Math.floor(Number(exchangeQty || 1))), maxNow);
-                  exchangeMoveTokensForSpecialBalls(exchangeBallKey, take);
-                  setMessage(`Exchanged ${take * 5} tokens for ${take} ${(getBallDef(exchangeBallKey)?.label ?? 'Special Ball')}(s).`);
-                }}
-              >
-                Exchange
-              </button>
-
-              <div className="settingsHint">You can exchange up to <b>{maxExchangeQty}</b> ball(s) right now.</div>
-            </div>
-
-<div className="settingsGroup">
               <div className="settingsHeading">Daily Gift</div>
               <button
                 className={`btnSmall giftBtn ${((save.lastDailyGiftKey || null) !== todayKey()) ? 'giftBtnAvailable' : 'giftBtnUnavailable'}`}

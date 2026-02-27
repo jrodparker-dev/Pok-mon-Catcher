@@ -55,7 +55,7 @@ function SpriteWithFallback({ mon, className }) {
   );
 }
 
-export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onToggleLock, onSetFusionSpriteChoice, onStartFuse, onUnfuse, fusionTokens }) {
+export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMons, onToggleTeam, onReplaceTeamMember, moveTokens, onReplaceMove, onRelease, onToggleLock, onSetFusionSpriteChoice, onStartFuse, fusionTokens }) {
   // Fusion sprite availability + UI (only shown if BOTH orientations exist).
   const [fusionAvail, setFusionAvail] = useState({ primary: false, flipped: false });
   const [fusionMenuOpen, setFusionMenuOpen] = useState(false);
@@ -129,7 +129,8 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
   }, [mon.formId, mon.speciesId, mon.dexId, mon.id]);
 
   const teamSet = useMemo(() => new Set(Array.isArray(teamUids) ? teamUids : []), [teamUids]);
-  const inTeam = teamSet.has(mon.uid);
+    const [showTeamReplace, setShowTeamReplace] = useState(false);
+const inTeam = teamSet.has(mon.uid);
   const canAddMore = teamSet.size < 3;
 
   const handleEvolveClick = () => {
@@ -419,6 +420,82 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
           </div>
         ) : null}
 
+
+        {/* Team replace picker (when team is full) */}
+        {showTeamReplace ? (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              padding: 16,
+            }}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              style={{
+                width: 'min(520px, 96vw)',
+                background: 'rgba(18, 24, 36, 0.98)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 16,
+                padding: 14,
+                boxShadow: '0 18px 60px rgba(0,0,0,0.55)',
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 16 }}>Your team is full</div>
+              <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>
+                Choose which Pokémon to replace.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                {(Array.isArray(teamMons) ? teamMons : []).slice(0, 3).map((tm) => {
+                  const buffs = Array.isArray(tm?.buffs) ? tm.buffs : (tm?.buff ? [tm.buff] : []);
+                  const buffText = buffs.map(describeBuff).filter(Boolean).join(' • ');
+                  return (
+                    <button
+                      key={tm?.uid}
+                      type="button"
+                      className="btnGhost"
+                      style={{
+                        textAlign: 'left',
+                        padding: 12,
+                        borderRadius: 14,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'rgba(255,255,255,0.04)',
+                      }}
+                      onClick={() => {
+                        if (onReplaceTeamMember) {
+                          onReplaceTeamMember(tm.uid, mon.uid);
+                        } else if (onToggleTeam) {
+                          onToggleTeam(tm.uid);
+                          onToggleTeam(mon.uid);
+                        }
+                        setShowTeamReplace(false);
+                      }}
+                    >
+                      <div style={{ fontWeight: 900 }}>{tm?.name || 'Team member'}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.9 }}>
+                        {buffText || 'No buffs'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <button className="btnSmall" type="button" onClick={() => setShowTeamReplace(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* Bottom action bar: Evolve (bottom-left) + Close (bottom-right) */}
         <div
           style={{
@@ -434,8 +511,17 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
             {onToggleTeam ? (
               <button
                 className={inTeam ? "btnSmall" : "btnGhost"}
-                onClick={() => onToggleTeam(mon.uid)}
-                disabled={!inTeam && !canAddMore}
+                onClick={() => {
+                  if (inTeam) {
+                    onToggleTeam(mon.uid);
+                    return;
+                  }
+                  if (!canAddMore) {
+                    setShowTeamReplace(true);
+                    return;
+                  }
+                  onToggleTeam(mon.uid);
+                }}
                 title={inTeam ? "Remove from Team" : (canAddMore ? "Add to Team" : "Team full")}
               >
                 {inTeam ? "Remove from Team" : "Add to Team"}
@@ -522,26 +608,6 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, onTogg
               title={canEvolve ? "Only fully evolved Pokémon can be fused." : "Fuse this Pokémon with another (costs 1 Fusion Token)"}
             >
               Fuse
-            </button>
-          ) : null}
-
-          {onUnfuse && mon?.isFusion ? (
-            <button
-              className="btnSmall"
-              onClick={() => {
-                if (!mon?.fusionParts?.a || !mon?.fusionParts?.b) {
-                  alert("This fusion was created before Unfuse support existed, so it can't be undone.");
-                  return;
-                }
-                const ok = window.confirm('Unfuse this Pokémon? You will get back both original Pokémon (with their buffs) and your Fusion Token will be refunded.');
-                if (!ok) return;
-                onUnfuse(mon.uid);
-                onClose();
-              }}
-              type="button"
-              title="Undo this fusion and refund the Fusion Token"
-            >
-              Unfuse
             </button>
           ) : null}
 

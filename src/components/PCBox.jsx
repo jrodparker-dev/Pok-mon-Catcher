@@ -114,8 +114,7 @@ function savePCBoxPrefs(prefs) {
   } catch {}
 }
 export default function PCBox({
-  caughtList, onClose, onEvolve, teamUids, onToggleTeam, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
-  onUnfuse,
+  caughtList, onClose, onEvolve, teamUids, onToggleTeam, onReplaceTeamMember, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
   onSetFusionOtherName,
   onSetFusionSpriteChoice,
 }) {
@@ -147,6 +146,13 @@ export default function PCBox({
   }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, buffFilter]);
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
+
+  const teamMons = useMemo(() => {
+    const map = new Map((Array.isArray(caughtList) ? caughtList : []).map(m => [m?.uid, m]));
+    const uids = Array.isArray(teamUids) ? teamUids.slice(0, 3) : [];
+    return uids.map(u => map.get(u)).filter(Boolean);
+  }, [caughtList, teamUids]);
+
 
   const toggleRarity = (key) => {
     setRarityChecks((rc) => ({ ...(rc || {}), [key]: !rc?.[key] }));
@@ -566,6 +572,8 @@ export default function PCBox({
           onEvolve={onEvolve ? (uid, targetDexId) => onEvolve(uid, targetDexId) : null}
           teamUids={teamUids}
           onToggleTeam={onToggleTeam}
+          onReplaceTeamMember={onReplaceTeamMember}
+          teamMons={teamMons}
           moveTokens={moveTokens}
           onReplaceMove={onReplaceMove}
           onRelease={onRelease}
@@ -574,7 +582,6 @@ export default function PCBox({
           onSetFusionSpriteChoice={onSetFusionSpriteChoice}
           fusionTokens={fusionTokens}
           onStartFuse={onStartFuse ? (uid) => { onStartFuse(uid); setFuseBaseUid(uid); setFusePickUid(null); } : null}
-          onUnfuse={onUnfuse}
         />
       )}
     </>

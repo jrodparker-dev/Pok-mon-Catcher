@@ -32,6 +32,73 @@ const BALL_UNLOCK_TEXT = {
   fast: 'Catch 50 shiny Pokémon',
 };
 
+
+function clamp01(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function ballUnlockProgress(ballKey, { trainer, pokedex }) {
+  const stats = (trainer?.stats && typeof trainer.stats === 'object') ? trainer.stats : {};
+  const level = Math.max(1, Math.floor(trainer?.level ?? 1));
+
+  const uniqueCaught = (() => {
+    let c = 0;
+    for (const [k, v] of Object.entries(pokedex || {})) {
+      if (!/^\d+$/.test(k)) continue;
+      if ((v?.caught ?? 0) > 0) c += 1;
+    }
+    return c;
+  })();
+
+  if (ballKey === 'net') {
+    const cur = Math.max(0, Math.floor(stats.bugEvolves ?? 0));
+    return { label: 'Evolve Bug-type Pokémon', cur, target: 25 };
+  }
+  if (ballKey === 'repeat') {
+    return { label: 'Register Pokémon in the Pokédex', cur: uniqueCaught, target: 250 };
+  }
+  if (ballKey === 'nest') {
+    const cur = Math.max(0, Math.floor(stats.commonCaught ?? 0));
+    return { label: 'Catch Common Pokémon', cur, target: 100 };
+  }
+  if (ballKey === 'fast') {
+    const cur = Math.max(0, Math.floor(stats.shinyCaught ?? 0));
+    return { label: 'Catch shiny Pokémon', cur, target: 50 };
+  }
+  if (ballKey === 'quick') return { label: 'Trainer level', cur: level, target: 10 };
+  if (ballKey === 'dream') return { label: 'Trainer level', cur: level, target: 15 };
+  if (ballKey === 'moon') return { label: 'Trainer level', cur: level, target: 20 };
+  if (ballKey === 'beast') return { label: 'Trainer level', cur: level, target: 25 };
+
+  if (ballKey === 'love') {
+    // We don't track partial progress (it's a one-time condition)
+    return { label: 'Catch a favorited Pokémon', cur: 0, target: 1 };
+  }
+
+  if (ballKey === 'timer') {
+    // Show the best (closest) dex entry progress toward full completion:
+    // 4 rarities + shiny = 5 checks.
+    let best = 0;
+    let bestLabel = 'Complete a Pokédex entry fully';
+    for (const [k, v] of Object.entries(pokedex || {})) {
+      if (!/^\d+$/.test(k)) continue;
+      const rc = (v?.rarityCaught && typeof v.rarityCaught === 'object') ? v.rarityCaught : {};
+      const need = ['common', 'uncommon', 'rare', 'legendary'];
+      let got = 0;
+      for (const r of need) if ((rc[r] ?? 0) > 0) got += 1;
+      if ((v?.shinyCaught ?? 0) > 0) got += 1;
+      if (got > best) best = got;
+      if (best >= 5) break;
+    }
+    return { label: bestLabel, cur: best, target: 5 };
+  }
+
+  // Default: no measurable progress
+  return { label: BALL_UNLOCK_TEXT[ballKey] || 'Locked', cur: 0, target: 1 };
+}
+
 export default function TrainerProfile({
   open,
   onClose,
@@ -43,6 +110,7 @@ export default function TrainerProfile({
   const pokedex = save?.pokedex ?? {};
   const favorites = Array.isArray(save?.favorites) ? save.favorites.slice(0, 5) : [null, null, null, null, null];
   const [expanded, setExpanded] = useState(null);
+  const [ballInfoKey, setBallInfoKey] = useState(null);
 
   const unlocked = save?.specialBalls?.unlocked ?? {};
   const equipped = Array.isArray(save?.specialBalls?.equipped) ? save.specialBalls.equipped.slice(0, 4) : [];
@@ -223,15 +291,77 @@ export default function TrainerProfile({
                   opacity: disabled ? 0.45 : 1,
                   border: isE ? '2px solid rgba(255,255,255,0.9)' : undefined,
                 }}
-                onClick={() => { if (!disabled) toggleEquip(b.key); }}
-                disabled={disabled}
-                title={disabled ? `Locked: ${req}` : (isE ? 'Click to unequip' : 'Click to equip')}
+                onClick={() => {
+                  if (disabled) {
+                    setBallInfoKey(b.key);
+                    return;
+                  }
+                  toggleEquip(b.key);
+                }}
+                title={disabled ? `Locked: ${req} (click for details)` : (isE ? 'Click to unequip' : 'Click to equip')}
               >
                 {b.label}
               </button>
             );
           })}
-        </div>
+        
+        {ballInfoKey ? (() => {
+          const p = ballUnlockProgress(ballInfoKey, { trainer, pokedex });
+          const cur = Math.max(0, Math.floor(p.cur ?? 0));
+          const target = Math.max(1, Math.floor(p.target ?? 1));
+          const pct = clamp01(cur / target);
+          return (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.55)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999,
+                padding: 16,
+              }}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div
+                style={{
+                  width: 'min(520px, 96vw)',
+                  background: 'rgba(18, 24, 36, 0.98)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 16,
+                  padding: 14,
+                  boxShadow: '0 18px 60px rgba(0,0,0,0.55)',
+                }}
+              >
+                <div style={{ fontWeight: 900, fontSize: 16 }}>
+                  {SPECIAL_BALLS.find(b => b.key === ballInfoKey)?.label || ballInfoKey}
+                </div>
+                <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
+                  {p.label} {target === 1 ? '' : `${cur}/${target}`}
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ height: 12, background: 'rgba(255,255,255,0.10)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.round(pct * 100)}%`, height: '100%', background: 'rgba(34,197,94,0.95)' }} />
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+                    {Math.round(pct * 100)}%
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button className="btnSmall" type="button" onClick={() => setBallInfoKey(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })() : null}
+
+</div>
 
         {/* Original trainer cards */}
         <div className="profileGrid" style={{ marginTop: 18 }}>
