@@ -123,6 +123,8 @@ export default function App() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
+  const [exchangeBallKey, setExchangeBallKey] = useState('premier');
+  const [exchangeQty, setExchangeQty] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
   const [miniStartPendingSpawn, setMiniStartPendingSpawn] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -468,6 +470,34 @@ function grantDailyGiftIfAvailable() {
     setMessage('Daily Gift claimed: +10 Poké, +10 Great, +10 Ultra, +1 Master, +10 random unlocked Special Balls!');
   }
 }
+
+  function exchangeMoveTokensForSpecialBalls(ballKey, qty) {
+    const key = String(ballKey || '').toLowerCase();
+    const take = Math.max(1, Math.floor(Number(qty || 1)));
+    if (!key) return;
+    if (!unlockedSpecial[key]) {
+      setMessage('That ball is locked.');
+      return;
+    }
+    const cost = take * 5;
+    if ((save?.moveTokens ?? 0) < cost) {
+      setMessage('Not enough Move Tokens.');
+      return;
+    }
+    setSave(prev => {
+      const prevTokens = prev.moveTokens ?? 0;
+      if (prevTokens < cost) return prev;
+      const nextBalls = { ...(prev.balls ?? {}) };
+      nextBalls[key] = (nextBalls[key] ?? 0) + take;
+      return {
+        ...prev,
+        moveTokens: prevTokens - cost,
+        balls: nextBalls,
+      };
+    });
+  }
+
+
 
 
   function resetEncounterAssist() {
@@ -1720,6 +1750,27 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   }
 
 
+  // --- Backpack exchange (Move Tokens -> Special Balls) ---
+  const unlockedSpecial = save?.specialBalls?.unlocked ?? {};
+  const unlockedSpecialKeys = Object.keys(unlockedSpecial).filter(k => !!unlockedSpecial[k]);
+  const maxExchangeQty = Math.floor((save?.moveTokens ?? 0) / 5);
+
+  useEffect(() => {
+    // Keep exchange selection valid as unlocks change
+    if (unlockedSpecialKeys.length && !unlockedSpecial[exchangeBallKey]) {
+      setExchangeBallKey(unlockedSpecialKeys[0]);
+    }
+    // Clamp qty to affordability (and minimum 1)
+    setExchangeQty(q => {
+      const n = Math.max(1, Math.floor(Number(q || 1)));
+      const maxNow = Math.max(1, maxExchangeQty || 1);
+      return Math.min(n, maxNow);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [save?.moveTokens, save?.specialBalls, unlockedSpecialKeys.join('|')]);
+
+
+
   function closeSettings() {
     setShowSettings(false);
     // When a new mini-run starts, show settings first, then spawn once settings is closed.
@@ -2354,6 +2405,11 @@ function viewSavedRun(summary) {
   async function throwBall(ballKey) {
     if (!wild || stage !== 'ready') return;
 
+    if (inMiniRun() && !['poke','great','ultra','master'].includes(String(ballKey))) {
+      setMessage('Special balls are disabled in mini-runs.');
+      return;
+    }
+
     const count = save.balls?.[ballKey] ?? 0;
     if (count <= 0) {
       setMessage('You are out of that ball type!');
@@ -2963,6 +3019,7 @@ bumpDexCaughtFromAny(
 				    ))}
 				  </div>
 
+				  {!inMiniRun() && (
 				  <div className="ballsRow specialBallsRow" aria-label="Special balls">
 				    {Array.from({ length: 4 }).map((_, i) => {
 				      const key = (save.specialBalls?.equipped ?? [])[i] || null;
@@ -2989,6 +3046,8 @@ bumpDexCaughtFromAny(
 				      );
 				    })}
 				  </div>
+				  )}
+
 				</div>
 
                 <div className="mobileMovesArea" aria-label="Moves">
@@ -3372,7 +3431,64 @@ bumpDexCaughtFromAny(
               </div>
             </div>
 
+            
             <div className="settingsGroup">
+              <div className="settingsHeading">Exchange</div>
+              <div className="settingsHint">Exchange <b>5</b> Move Tokens for <b>1</b> unlocked Special Ball.</div>
+
+              <div className="settingsRow" style={{gap:10, alignItems:'center'}}>
+                <label style={{minWidth:110}}>Ball</label>
+                <select
+                  value={exchangeBallKey}
+                  onChange={(e) => setExchangeBallKey(e.target.value)}
+                  style={{flex:1}}
+                >
+                  {unlockedSpecialKeys.length ? unlockedSpecialKeys.map(k => (
+                    <option key={k} value={k}>{getBallDef(k)?.label ?? k}</option>
+                  )) : (
+                    <option value="premier" disabled>No unlocked special balls</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="settingsRow" style={{gap:10, alignItems:'center'}}>
+                <label style={{minWidth:110}}>Qty</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, maxExchangeQty)}
+                  value={exchangeQty}
+                  onChange={(e) => setExchangeQty(e.target.value)}
+                  style={{width:90}}
+                />
+                <input
+                  type="range"
+                  min={1}
+                  max={Math.max(1, maxExchangeQty)}
+                  value={exchangeQty}
+                  onChange={(e) => setExchangeQty(e.target.value)}
+                  style={{flex:1}}
+                />
+              </div>
+
+              <button
+                className="btnSmall"
+                type="button"
+                disabled={!unlockedSpecialKeys.length || (save.moveTokens ?? 0) < 5}
+                onClick={() => {
+                  const maxNow = Math.max(1, Math.floor((save.moveTokens ?? 0) / 5));
+                  const take = Math.min(Math.max(1, Math.floor(Number(exchangeQty || 1))), maxNow);
+                  exchangeMoveTokensForSpecialBalls(exchangeBallKey, take);
+                  setMessage(`Exchanged ${take * 5} tokens for ${take} ${(getBallDef(exchangeBallKey)?.label ?? 'Special Ball')}(s).`);
+                }}
+              >
+                Exchange
+              </button>
+
+              <div className="settingsHint">You can exchange up to <b>{maxExchangeQty}</b> ball(s) right now.</div>
+            </div>
+
+<div className="settingsGroup">
               <div className="settingsHeading">Daily Gift</div>
               <button
                 className={`btnSmall giftBtn ${((save.lastDailyGiftKey || null) !== todayKey()) ? 'giftBtnAvailable' : 'giftBtnUnavailable'}`}
