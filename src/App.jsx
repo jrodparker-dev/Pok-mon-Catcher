@@ -2807,11 +2807,20 @@ bumpDexCaughtFromAny(
                   </div>
 
                   {/* Shiny indicator (top-right). Keep separate from NEW/CAUGHT badge. */}
-                  {wild.shiny ? (
-                    <div className="shinyCorner" title="Shiny" aria-label="Shiny">
-                      ✨
-                    </div>
-                  ) : null}
+                  {(() => {
+                    const isSuperRare = Array.isArray(wild?.buffs) && wild.buffs.some(b => b?.superRare);
+                    if (!wild?.shiny && !isSuperRare) return null;
+                    return (
+                      <div className="sparkleCornerStack" aria-hidden="true">
+                        {wild.shiny ? (
+                          <div className="shinyCorner" title="Shiny" aria-label="Shiny">✨</div>
+                        ) : null}
+                        {isSuperRare ? (
+                          <div className="superRareCorner" title="Super-rare buff" aria-label="Super-rare buff">✦</div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
 
                   {encounterStatus ? (
                     <div

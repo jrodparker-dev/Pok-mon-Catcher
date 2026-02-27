@@ -587,6 +587,38 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   text-shadow: 0 1px 0 rgba(0,0,0,.35);
 }
 
+/* Encounter sparkle stack (shiny + super-rare). */
+.sparkleCornerStack{
+  position:absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display:flex;
+  gap: 6px;
+  align-items:center;
+}
+
+/* When shinyCorner is used inside the stack, it should flow normally. */
+.sparkleCornerStack .shinyCorner{
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+}
+
+.superRareCorner{
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, .15);
+  border: 1px solid rgba(96, 165, 250, .5);
+  color: rgba(96, 165, 250, .98);
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: .2px;
+  backdrop-filter: blur(6px);
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+}
+
 .caughtStatusCorner{
   position:absolute;
   top: 48px;

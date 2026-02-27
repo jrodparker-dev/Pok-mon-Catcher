@@ -7,7 +7,7 @@ export const BIOMES = [
   { key: 'desert', label: 'Desert' },
   { key: 'tallgrass', label: 'Tall Grass' },
   { key: 'snow', label: 'Snow' },
-  { key: 'powerplant', label: 'Power Plant' },
+  { key: 'powerplant', label: 'City' },
 ];
 
 export function rollRandomBiomeKey(rng = Math.random) {

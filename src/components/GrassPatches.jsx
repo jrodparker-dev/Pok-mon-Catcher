@@ -20,24 +20,26 @@ export default function GrassPatches({ slots, onPick, Sprite }) {
       {list.map((mon, i) => {
         const biomeKey = String(mon?.biome || 'grass');
         const biomeLabel = getBiomeLabel(biomeKey);
-        const biomeStyle = getBiomeStyle(biomeKey);
+        const biomeOverlayStyle = getBiomeOverlayStyle(biomeKey);
+        const isSuperRare = Array.isArray(mon?.buffs) && mon.buffs.some(b => b?.superRare);
+        const isShiny = !!mon?.shiny;
 
         return (
           <button
             key={mon?.uid || mon?.formId || mon?.dexId || i}
             type="button"
             onClick={() => onPick?.(i)}
-            style={{ ...styles.patchBtn, ...biomeStyle }}
-            aria-label={mon?.shiny ? `${biomeLabel} (shiny nearby)` : biomeLabel}
-            title={mon?.shiny ? `Something sparkly in the ${biomeLabel.toLowerCase()}…` : `${biomeLabel}…`}
+            style={styles.patchBtn}
+            aria-label={isShiny ? `${biomeLabel} (shiny nearby)` : biomeLabel}
+            title={isShiny ? `Something sparkly in the ${biomeLabel.toLowerCase()}…` : `${biomeLabel}…`}
           >
             {/* Preload sprite behind fully opaque overlay */}
             <div style={styles.preloadWrap} aria-hidden="true">
               <Sprite mon={mon} className="grassPreloadSprite" alt="" title="" />
             </div>
 
-            {/* Opaque overlay */}
-            <div style={styles.overlay} />
+            {/* FULLY OPAQUE biome overlay to hide sprite completely */}
+            <div style={{ ...styles.overlay, ...biomeOverlayStyle }} aria-hidden="true" />
 
             {/* Vignette for cave */}
             {biomeKey === 'cave' ? <div style={styles.vignette} /> : null}
@@ -47,7 +49,13 @@ export default function GrassPatches({ slots, onPick, Sprite }) {
 
             <div style={styles.biomePill}>{biomeLabel}</div>
 
-            {mon?.shiny ? <div style={styles.sparkle}>✨</div> : null}
+            {/* sparkles (shiny + super-rare) */}
+            {(isShiny || isSuperRare) ? (
+              <div style={styles.sparkleWrap} aria-hidden="true">
+                {isShiny ? <div style={styles.sparkle}>✨</div> : null}
+                {isSuperRare ? <div style={styles.superSparkle}>✦</div> : null}
+              </div>
+            ) : null}
           </button>
         );
       })}
@@ -55,7 +63,7 @@ export default function GrassPatches({ slots, onPick, Sprite }) {
   );
 }
 
-function getBiomeStyle(key) {
+function getBiomeOverlayStyle(key) {
   const k = String(key || '').toLowerCase();
   if (k === 'sea') {
     return {
@@ -100,6 +108,7 @@ const styles = {
     overflow: 'hidden',
     cursor: 'pointer',
     padding: 0,
+    background: '#0b1a10',
   },
   preloadWrap: {
     position: 'absolute',
@@ -109,18 +118,22 @@ const styles = {
     justifyContent: 'center',
     opacity: 0.001, // basically invisible but still loads
     pointerEvents: 'none',
+    zIndex: 0,
   },
   overlay: {
     position: 'absolute',
     inset: 0,
-    background: 'rgba(0,0,0,0.12)',
+    // MUST be fully opaque (no alpha) or the sprite will show through.
+    background: '#6ccf62',
     pointerEvents: 'none',
+    zIndex: 1,
   },
   vignette: {
     position: 'absolute',
     inset: 0,
     background: 'radial-gradient(circle at 50% 45%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 85%)',
     pointerEvents: 'none',
+    zIndex: 2,
   },
   bolt: {
     position: 'absolute',
@@ -133,6 +146,7 @@ const styles = {
     color: '#f1c40f',
     textShadow: '0 2px 10px rgba(0,0,0,0.35)',
     pointerEvents: 'none',
+    zIndex: 3,
   },
   biomePill: {
     position: 'absolute',
@@ -145,12 +159,23 @@ const styles = {
     fontSize: 12,
     fontWeight: 800,
     pointerEvents: 'none',
+    zIndex: 4,
   },
-  sparkle: {
+  sparkleWrap: {
     position: 'absolute',
-    right: 8,
     top: 8,
-    fontSize: 18,
+    right: 8,
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
     pointerEvents: 'none',
+    zIndex: 6,
+    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.55))',
+  },
+  sparkle: { fontSize: 18 },
+  superSparkle: {
+    fontSize: 18,
+    color: '#60a5fa',
+    textShadow: '0 0 10px rgba(96,165,250,0.85)',
   },
 };
