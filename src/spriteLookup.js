@@ -81,7 +81,7 @@ export const FORME_SUFFIXES = [
   'small', 'large', 'super', 'average',
 
   // deoxys-like
-  'attack','defense','speed',
+  'attack','defense','speed', "10%",
 
   //castform
   'sunny', 'rainy', 'snowy',
