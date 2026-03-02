@@ -15,6 +15,7 @@ const STAT_ORDER = [
   ['spd', 'SpD'],
   ['spe', 'Spe'],
 ];
+const STAT_KEYS = STAT_ORDER.map(([k]) => k);
 
 function cap(s) {
   return String(s || '')
@@ -22,8 +23,79 @@ function cap(s) {
     .map(x => (x ? x[0].toUpperCase() + x.slice(1) : x))
     .join(' ');
 }
+
 function isBuffLike(value) {
   return !!(value && typeof value === 'object' && typeof value.kind === 'string');
+}
+
+function normalizeLegacyBuff(buff) {
+  if (!isBuffLike(buff)) return null;
+  const b = { ...buff };
+  if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
+    const amount = Number(b.amount);
+    const fallback = b.kind === 'stat+10' ? 10 : (b.kind === 'stat+20' ? 20 : 30);
+    return { ...b, kind: 'stat', amount: Number.isFinite(amount) ? amount : fallback };
+  }
+  if (b.kind === 'stat+15x2') {
+    const amount = Number(b.amount);
+    return { ...b, kind: 'stat2', amount: Number.isFinite(amount) ? amount : 15 };
+  }
+  return b;
+}
+
+function resolveBuffsForDisplay(mon) {
+  const raw = getDisplayBuffs(mon).map(normalizeLegacyBuff).filter(Boolean);
+  if (!raw.length) return [];
+
+  const base = mon?.baseStats ?? {};
+  const final = mon?.finalStats ?? {};
+  const diffs = STAT_KEYS
+    .map((k) => ({ k, d: (final?.[k] ?? base?.[k]) - (base?.[k] ?? final?.[k]) }))
+    .filter((x) => Number.isFinite(x.d) && x.d !== 0)
+    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+
+  const used = new Set();
+  return raw.map((b) => {
+    if (b.kind === 'stat' || b.kind === 'stat-mult') {
+      if (b.stat) return b;
+      const pick = diffs.find((x) => !used.has(x.k))?.k || diffs[0]?.k;
+      if (pick) used.add(pick);
+      return pick ? { ...b, stat: pick } : b;
+    }
+    if (b.kind === 'stat2') {
+      if (Array.isArray(b.stats) && b.stats.length >= 2) return b;
+      const picks = diffs.filter((x) => !used.has(x.k)).slice(0, 2).map((x) => x.k);
+      if (picks.length === 1 && diffs[1]?.k && diffs[1].k !== picks[0]) picks.push(diffs[1].k);
+      picks.forEach((k) => used.add(k));
+      return picks.length >= 2 ? { ...b, stats: picks } : b;
+    }
+    return b;
+  });
+}
+
+function getDisplayFinalStats(mon, buffs) {
+  const base = mon?.baseStats;
+  if (!base || typeof base !== 'object') return mon?.finalStats ?? {};
+
+  const currentFinal = mon?.finalStats;
+  const hasStoredFinal = STAT_KEYS.some((k) => typeof currentFinal?.[k] === 'number');
+  const storedDiffers = hasStoredFinal && STAT_KEYS.some((k) => (currentFinal?.[k] ?? 0) !== (base?.[k] ?? 0));
+  if (storedDiffers) return currentFinal;
+
+  const s = { ...base };
+  for (const b of buffs) {
+    if (!b || !b.kind) continue;
+    if (b.kind === 'stat' && b.stat) s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
+    if (b.kind === 'stat2') {
+      const [a, c] = b.stats ?? [];
+      if (a) s[a] = (s[a] ?? 0) + (b.amount ?? 0);
+      if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+    }
+    if (b.kind === 'stat-all') {
+      for (const k of STAT_KEYS) s[k] = (s[k] ?? 0) + (b.amount ?? 0);
+    }
+  }
+  return s;
 }
 
 function getDisplayBuffs(mon) {
@@ -188,7 +260,8 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
 
   if (!mon) return null;
 
-  const monBuffs = getDisplayBuffs(mon);
+  const monBuffs = resolveBuffsForDisplay(mon);
+  const displayFinalStats = getDisplayFinalStats(mon, monBuffs);
 
   const baseRarityBadge = (RARITIES.find(r => r.key === mon.rarity)?.badge ?? null);
   const isDelta = !!(mon.isDelta);
@@ -318,7 +391,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               {STAT_ORDER.map(([k, label]) => {
                 const base = mon.baseStats?.[k];
-                const final = mon.finalStats?.[k];
+                const final = displayFinalStats?.[k];
                 const changed =
                   typeof base === 'number' && typeof final === 'number' && base !== final;
                 const superBlue = Array.isArray(mon.superChangedStats) && mon.superChangedStats.includes(k);
