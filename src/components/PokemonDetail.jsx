@@ -22,6 +22,43 @@ function cap(s) {
     .map(x => (x ? x[0].toUpperCase() + x.slice(1) : x))
     .join(' ');
 }
+function isBuffLike(value) {
+  return !!(value && typeof value === 'object' && typeof value.kind === 'string');
+}
+
+function getDisplayBuffs(mon) {
+  if (!mon || typeof mon !== 'object') return [];
+
+  const direct = Array.isArray(mon.buffs) ? mon.buffs.filter(isBuffLike) : [];
+  if (direct.length) return direct;
+  if (isBuffLike(mon.buff)) return [mon.buff];
+
+  // Legacy save support: some old records nested buff payloads in older object shapes.
+  // Walk recursively and return the first buff list/object we can confidently parse.
+  const seen = new WeakSet();
+  const stack = [{ value: mon, depth: 0 }];
+  const MAX_DEPTH = 6;
+
+  while (stack.length) {
+    const { value, depth } = stack.pop();
+    if (!value || typeof value !== 'object') continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+
+    const buffs = Array.isArray(value.buffs) ? value.buffs.filter(isBuffLike) : [];
+    if (buffs.length) return buffs;
+    if (isBuffLike(value.buff)) return [value.buff];
+
+    if (depth >= MAX_DEPTH) continue;
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') {
+        stack.push({ value: child, depth: depth + 1 });
+      }
+    }
+  }
+
+  return [];
+}
 
 function SpriteWithFallback({ mon, className }) {
   const [tick, setTick] = useState(0);
@@ -151,6 +188,8 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
 
   if (!mon) return null;
 
+  const monBuffs = getDisplayBuffs(mon);
+
   const baseRarityBadge = (RARITIES.find(r => r.key === mon.rarity)?.badge ?? null);
   const isDelta = !!(mon.isDelta);
 
@@ -170,13 +209,13 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                 return (mon?.isFusion && otherName) ? `${baseName} / ${otherName}` : baseName;
               })()}</span>
               {mon.shiny ? <span className="modalTitleIcon" aria-label="Shiny">✨</span> : null}
-              {(Array.isArray(mon.buffs) && mon.buffs.some(b => b?.superRare)) ? <span className="modalTitleIcon superRareSparkle" aria-label="Super rare buff">✦</span> : null}
+              {(monBuffs.some(b => b?.superRare)) ? <span className="modalTitleIcon superRareSparkle" aria-label="Super rare buff">✦</span> : null}
               <span className="modalTitleIcon">
                 <PokeballIcon variant={(mon.caughtBall || mon.ballKey || "poke")} size={18} />
               </span>
             </div>
             <div className="modalSub">
-              {cap(mon.rarity)} • {(Array.isArray(mon.buffs) ? mon.buffs.map(describeBuff).filter(Boolean).join(' • ') : (mon.buff ? describeBuff(mon.buff) : 'none'))}{mon.shiny ? ' • ✨ Shiny' : ''}
+              {cap(mon.rarity)} • {(monBuffs.length ? monBuffs.map(describeBuff).filter(Boolean).join(' • ') : 'none')}{mon.shiny ? ' • ✨ Shiny' : ''}
             </div>
           </div>
           <button className="btnSmall" onClick={onClose}>
@@ -607,7 +646,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                 {(Array.isArray(teamMons) ? teamMons : []).slice(0, 3).map((tm) => {
-                  const buffs = Array.isArray(tm?.buffs) ? tm.buffs : (tm?.buff ? [tm.buff] : []);
+                  const buffs = getDisplayBuffs(tm);
                   const buffText = buffs.map(describeBuff).filter(Boolean).join(' • ');
                   return (
                     <button
