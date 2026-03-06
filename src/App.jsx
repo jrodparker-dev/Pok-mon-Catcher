@@ -17,7 +17,7 @@ import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, sav
 import { getEvolutionOptions } from './evolution.js';
 import { getRandomSpawnableDexId, getDexEntryByNum } from './dexLocal.js';
 import { spriteFallbacksFromBundle } from './sprites.js';
-import { getAllBaseDexEntries } from './dexLocal.js';
+import { getAllBaseDexEntries, MAX_POKEDEX_NUM } from './dexLocal.js';
 import { getDexById } from './dexLocal.js';
 
 
@@ -1631,6 +1631,26 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 }
 
 
+  const fullDexCaughtCount = useMemo(() => {
+    const seen = new Set();
+
+    for (const [k, v] of Object.entries(save?.pokedex ?? {})) {
+      const dexNum = Number(k);
+      if (Number.isFinite(dexNum) && (v?.caught ?? 0) > 0) seen.add(dexNum);
+    }
+
+    for (const mon of (caughtList ?? [])) {
+      const directNum = typeof mon?.dexId === 'number' ? mon.dexId : (typeof mon?.dexNum === 'number' ? mon.dexNum : undefined);
+      const info = getBaseDexInfoFromAny(directNum ?? mon?.formId ?? mon?.speciesId ?? mon?.name);
+      if (typeof info?.baseNum === 'number') seen.add(info.baseNum);
+    }
+
+    return seen.size;
+  }, [save?.pokedex, caughtList]);
+
+  const hasFullDexCompletion = fullDexCaughtCount >= (typeof MAX_POKEDEX_NUM === 'number' ? MAX_POKEDEX_NUM : 1025);
+
+
   // Build Dex list once (1..1025) from your local dex.
   // If your local dex is shorter, entries will just be missing/skipped.
   const dexEntries = useMemo(() => {
@@ -2899,7 +2919,7 @@ bumpDexCaughtFromAny(
         ) : null}
 
         {(stage === 'ready' || stage === 'throwing' || stage === 'caught' || stage === 'broke') && wild ? (
-          <div className="encounter">
+          <div className={`encounter ${hasFullDexCompletion ? 'dexMasterEncounter' : ''}`}>
             {/* MOBILE: grass patches above the encounter card */}
             {isMobile && stage === 'caught' && grassSlots.length ? (
               <GrassPatches
@@ -3302,6 +3322,7 @@ bumpDexCaughtFromAny(
     dexList={fullDexList}
     pokedex={save.pokedex ?? {}}
     caughtList={caughtList}
+    fullDexComplete={hasFullDexCompletion}
     pickMode={pickFavoriteSlot !== null}
     pickCaughtOnly={true}
     onPickDexNum={(dexNum) => {

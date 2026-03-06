@@ -97,6 +97,12 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .encounter{
   width: min(1200px, 96vw);
 }
+.encounter.dexMasterEncounter .wildArea,
+.encounter.dexMasterEncounter .teamPane,
+.encounter.dexMasterEncounter .movesPane{
+  border-color: rgba(245, 205, 66, 0.95);
+  box-shadow: 0 0 0 2px rgba(245, 205, 66, 0.72), 0 10px 30px rgba(0,0,0,.25), 0 0 24px rgba(245, 205, 66, 0.25);
+}
 .wildArea{
   border: 1px solid var(--ring);
   background: rgba(255,255,255,.05);
@@ -1418,6 +1424,10 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   flex-direction: column;
   max-height: 86vh; /* match your modalCard behavior */
 }
+.dexModalCard.dexModalCardComplete{
+  border: 2px solid rgba(245, 205, 66, 0.95);
+  box-shadow: 0 0 0 2px rgba(245, 205, 66, 0.40), 0 16px 40px rgba(0,0,0,.5), 0 0 28px rgba(245, 205, 66, 0.22);
+}
 
 .dexScroll{
   overflow: auto;
@@ -1540,6 +1550,10 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   padding: 10px 8px 8px;
   text-align:center;
   overflow:hidden;
+}
+.dexTile.dexTileComplete{
+  border: 1px solid rgba(245, 205, 66, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(245, 205, 66, 0.55), 0 0 18px rgba(245, 205, 66, 0.12);
 }
 
 .dexSpriteWrap{

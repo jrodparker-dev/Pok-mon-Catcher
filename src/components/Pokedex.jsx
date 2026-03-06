@@ -14,6 +14,7 @@ export default function Pokedex({
   pickMode = false,
   onPickDexNum,
   pickCaughtOnly = false,
+  fullDexComplete = false,
 }) {
   const [query, setQuery] = React.useState('');
   const [caughtOnly, setCaughtOnly] = React.useState(false);
@@ -185,7 +186,7 @@ export default function Pokedex({
 
   return (
     <div className="modalOverlay" role="dialog" aria-label="Pokédex">
-      <div className="dexModalCard">
+      <div className={`dexModalCard ${fullDexComplete ? 'dexModalCardComplete' : ''}`}>
 
         {/* Sticky header */}
         <div className="dexStickyHeader">
@@ -332,6 +333,7 @@ export default function Pokedex({
               const anyDeltaCaught = (entry.deltaCaught ?? 0) > 0 || caughtArr.some((m) => !!(m?.isDelta || m?.delta || m?.buff?.kind === 'delta-typing'));
 
               const isCaught = caughtCount > 0;
+              const isEntryComplete = hasFullyCompletedDexEntry(entry, caughtArr);
 
               // IMPORTANT: sprite should always use base ID from base dex entry, not a form id
               const spriteBaseId = toID(d.id);
@@ -341,7 +343,7 @@ export default function Pokedex({
                 <button
                   type="button"
                   key={dexNum}
-                  className={`dexTile ${pickMode ? 'dexPickMode' : ''} ${pickMode && !isCaught ? 'disabled' : ''}`}
+                  className={`dexTile ${isEntryComplete ? 'dexTileComplete' : ''} ${pickMode ? 'dexPickMode' : ''} ${pickMode && !isCaught ? 'disabled' : ''}`}
                   aria-label={`Dex entry ${d.name}`}
                   title={pickMode ? (isCaught ? 'Select' : 'You must catch it first') : undefined}
                   onClick={() => {
@@ -424,6 +426,22 @@ export default function Pokedex({
 /* -----------------------
    Helpers
    ----------------------- */
+
+
+function hasFullyCompletedDexEntry(entry, caughtArr) {
+  const rarityCaught = new Set([
+    ...Object.entries((entry?.rarityCaught && typeof entry.rarityCaught === 'object') ? entry.rarityCaught : {})
+      .filter(([, v]) => (v ?? 0) > 0)
+      .map(([k]) => String(k).toLowerCase()),
+    ...(caughtArr || []).map((m) => String(m?.rarity || '').toLowerCase()).filter(Boolean),
+  ]);
+
+  const hasAllRarities = ['common', 'uncommon', 'rare', 'legendary'].every((k) => rarityCaught.has(k));
+  const hasShiny = (entry?.shinyCaught ?? 0) > 0 || (caughtArr || []).some((m) => !!m?.shiny);
+  const hasDelta = (entry?.deltaCaught ?? 0) > 0 || (caughtArr || []).some((m) => !!(m?.isDelta || m?.delta || m?.buff?.kind === 'delta-typing'));
+
+  return hasAllRarities && hasShiny && hasDelta;
+}
 
 function toPrettyName(raw) {
   const s = String(raw || '').trim();
