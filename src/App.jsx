@@ -787,9 +787,33 @@ This will NOT reroll buffs. Continue?`
         let superChangedStats = mon.superChangedStats;
 
         if (baseStats) {
-          const res = applyStatBuffs(baseStats, buffs, Math.random);
-          finalStats = res.stats;
-          superChangedStats = res.superChangedStats;
+          const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+          const hasRerollStatsBuff = buffs.some((b) => String(b?.kind || '').toLowerCase() === 'reroll-stats');
+          const hasStoredFinal = keys.every((k) => typeof mon?.finalStats?.[k] === 'number');
+
+          if (hasRerollStatsBuff && hasStoredFinal) {
+            // Never reroll old saved 500-650 stats during refresh; preserve existing rolled stats.
+            finalStats = { ...mon.finalStats };
+            const hasStatSuperRareBuff = buffs.some((b) => !!b?.superRare && ['stat', 'stat2', 'stat-all', 'stat-mult', 'bst-to-600', 'reroll-stats', 'stat+10', 'stat+20', 'stat+30', 'stat+15x2'].includes(String(b?.kind || '').toLowerCase()));
+            if (hasStatSuperRareBuff) {
+              superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
+            }
+          } else {
+            const res = applyStatBuffs(baseStats, buffs, Math.random);
+            finalStats = res.stats;
+            superChangedStats = res.superChangedStats;
+
+            // If old saves had incomplete super-rare metadata, only reconstruct blue-highlighted
+            // stats for super-rare buffs that actually touch stats.
+            const hasStatSuperRareBuff = buffs.some((b) => !!b?.superRare && ['stat', 'stat2', 'stat-all', 'stat-mult', 'bst-to-600', 'reroll-stats', 'stat+10', 'stat+20', 'stat+30', 'stat+15x2'].includes(String(b?.kind || '').toLowerCase()));
+            if (hasStatSuperRareBuff && (!Array.isArray(superChangedStats) || superChangedStats.length === 0)) {
+              superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
+            }
+          }
+
+          if (Array.isArray(superChangedStats)) {
+            superChangedStats = [...new Set(superChangedStats.filter(Boolean))];
+          }
 
           // If old saves had incomplete super-rare metadata, ensure blue-highlighted
           // stats are still reconstructed from the recomputed final values.
@@ -805,16 +829,16 @@ This will NOT reroll buffs. Continue?`
           // Re-apply shiny boost
           if (mon.shiny) {
             let shinyBoostStat = mon.shinyBoostStat;
-            const keys = ['hp','atk','def','spa','spd','spe'];
-            if (!shinyBoostStat || !keys.includes(shinyBoostStat)) {
-              let minVal = Infinity;
-              for (const k of keys) {
-                const v = finalStats?.[k];
-                if (typeof v === 'number') minVal = Math.min(minVal, v);
-              }
-              const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
-              shinyBoostStat = mins.length ? mins[Math.floor(Math.random() * mins.length)] : 'hp';
+            // Keep shiny bonus aligned to the current lowest stat after any final stat recalculation.
+            let minVal = Infinity;
+            for (const k of keys) {
+              const v = finalStats?.[k];
+              if (typeof v === 'number') minVal = Math.min(minVal, v);
             }
+            const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
+            shinyBoostStat = mins.length
+              ? (mins.includes(shinyBoostStat) ? shinyBoostStat : mins[Math.floor(Math.random() * mins.length)])
+              : (shinyBoostStat || 'hp');
             finalStats = {...finalStats, [shinyBoostStat]: (finalStats?.[shinyBoostStat] ?? 0) + 50};
             return {
               ...mon,
@@ -2261,6 +2285,33 @@ function viewSavedRun(summary) {
       return t;
     }
 
+    function addWithOverflow(statKey, amount, allowRedistribute = false) {
+      const add = Math.trunc(Number(amount) || 0);
+      if (!add) return;
+
+      const cur = Math.trunc(Number(s?.[statKey] ?? 0));
+      const next = cur + add;
+      if (next <= 255 || !allowRedistribute) {
+        s[statKey] = next;
+        return;
+      }
+
+      s[statKey] = 255;
+      let overflow = next - 255;
+      const targets = STAT_KEYS_LOCAL
+        .filter((k) => k !== statKey)
+        .sort((a, b) => (s?.[a] ?? 0) - (s?.[b] ?? 0));
+
+      for (const k of targets) {
+        if (overflow <= 0) break;
+        const room = 255 - Math.trunc(Number(s?.[k] ?? 0));
+        if (room <= 0) continue;
+        const give = Math.min(room, overflow);
+        s[k] = (s[k] ?? 0) + give;
+        overflow -= give;
+      }
+    }
+
     function genUnhingedBalancedStats(minBST = 500, maxBST = 650) {
       // Spiky (unhinged) split with guardrails + compensation:
       // - 1..255 per stat
@@ -2360,19 +2411,19 @@ function viewSavedRun(summary) {
 
       // current kinds
       if (b.kind === 'stat') {
-        s[b.stat] = (s[b.stat] ?? 0) + (b.amount ?? 0);
+        if (b?.stat) addWithOverflow(b.stat, (b.amount ?? 0), !!b?.superRare);
         if (b?.superRare && b?.stat) superChanged.add(b.stat);
         continue;
       }
       if (b.kind === 'stat2') {
         const [a, c] = b.stats ?? [];
-        if (a) s[a] = (s[a] ?? 0) + (b.amount ?? 0);
-        if (c) s[c] = (s[c] ?? 0) + (b.amount ?? 0);
+        if (a) addWithOverflow(a, (b.amount ?? 0), !!b?.superRare);
+        if (c) addWithOverflow(c, (b.amount ?? 0), !!b?.superRare);
         if (b?.superRare) { if (a) superChanged.add(a); if (c) superChanged.add(c); }
         continue;
       }
       if (b.kind === 'stat-all') {
-        for (const k of STAT_KEYS_LOCAL) s[k] = (s[k] ?? 0) + (b.amount ?? 0);
+        for (const k of STAT_KEYS_LOCAL) addWithOverflow(k, (b.amount ?? 0), !!b?.superRare);
         if (b?.superRare) for (const k of STAT_KEYS_LOCAL) superChanged.add(k);
         continue;
       }
@@ -2426,7 +2477,25 @@ function viewSavedRun(summary) {
       }
       const mult = Number(b.mult ?? 2) || 2;
       if (typeof s[k] === 'number') {
-        s[k] = clampStat(Math.round(s[k] * mult));
+        const multiplied = Math.round((s[k] ?? 0) * mult);
+        if (b?.superRare && multiplied > 255) {
+          const overflow = multiplied - 255;
+          s[k] = 255;
+          const targets = STAT_KEYS_LOCAL
+            .filter((x) => x !== k)
+            .sort((a, b2) => (s?.[a] ?? 0) - (s?.[b2] ?? 0));
+          let remaining = overflow;
+          for (const t of targets) {
+            if (remaining <= 0) break;
+            const room = 255 - (s?.[t] ?? 0);
+            if (room <= 0) continue;
+            const give = Math.min(room, remaining);
+            s[t] = (s[t] ?? 0) + give;
+            remaining -= give;
+          }
+        } else {
+          s[k] = clampStat(multiplied);
+        }
         if (b?.superRare) superChanged.add(k);
       }
     }
