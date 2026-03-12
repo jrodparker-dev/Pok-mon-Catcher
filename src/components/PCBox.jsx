@@ -136,6 +136,8 @@ export default function PCBox({
   const [sortKey, setSortKey] = useState(() => String(prefs.sortKey ?? 'dex'));
   const [sortDir, setSortDir] = useState(() => (prefs.sortDir === 'desc' ? 'desc' : 'asc'));
   const [buffFilter, setBuffFilter] = useState(() => String(prefs.buffFilter ?? ''));
+  const [superRareOnly, setSuperRareOnly] = useState(!!prefs.superRareOnly);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   const [fuseBaseUid, setFuseBaseUid] = useState(null);
   const [fusePickUid, setFusePickUid] = useState(null);
@@ -150,8 +152,9 @@ export default function PCBox({
       sortKey,
       sortDir,
       buffFilter,
+      superRareOnly,
     });
-  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, buffFilter]);
+  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, buffFilter, superRareOnly]);
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
 
@@ -203,6 +206,11 @@ export default function PCBox({
       // Delta checkbox requires delta typing
       if (rarityChecks?.delta && !isDelta) return false;
 
+      if (superRareOnly) {
+        const bs = Array.isArray(p.buffs) ? p.buffs : (p.buff ? [p.buff] : []);
+        if (!bs.some(b => !!b?.superRare)) return false;
+      }
+
       // Buff filter (single-select)
       if (buffFilter) {
         const bs = Array.isArray(p.buffs) ? p.buffs : (p.buff ? [p.buff] : []);
@@ -241,7 +249,31 @@ export default function PCBox({
     });
 
     return scored;
-  }, [caughtList, query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, teamSet]);
+  }, [caughtList, query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, teamSet, superRareOnly]);
+
+  const selectedUids = useMemo(() => viewList.map((m) => m?.uid).filter(Boolean), [viewList]);
+
+  const closeActions = () => setActionsOpen(false);
+
+  const handleReleaseSelected = () => {
+    if (!selectedUids.length) return;
+    const lockedCount = viewList.filter((m) => m?.locked).length;
+    const msg = lockedCount
+      ? `Release ${selectedUids.length} Pokémon? (${lockedCount} locked will be skipped)`
+      : `Release ${selectedUids.length} Pokémon?`;
+    if (window.confirm(msg)) {
+      if (onReleaseMany) onReleaseMany(selectedUids);
+      else selectedUids.forEach((u) => onRelease && onRelease(u));
+    }
+    closeActions();
+  };
+
+  const handleSetSelectedLock = (lockState) => {
+    if (!selectedUids.length) return;
+    if (onSetLockMany) onSetLockMany(selectedUids, !!lockState);
+    else selectedUids.forEach((u) => onToggleLock && onToggleLock(u));
+    closeActions();
+  };
 
   return (
     <>
@@ -265,41 +297,33 @@ export default function PCBox({
                   </button>
                 )}
 
-                <button
-                  className="btnSmall"
-                  type="button"
-                  onClick={() => {
-                    const uids = viewList.map((m) => m?.uid).filter(Boolean);
-                    if (!uids.length) return;
-                    const lockedCount = viewList.filter((m) => m?.locked).length;
-                    const msg = lockedCount
-                      ? `Release ${uids.length} Pokémon? (${lockedCount} locked will be skipped)`
-                      : `Release ${uids.length} Pokémon?`;
-                    if (window.confirm(msg)) {
-                      if (onReleaseMany) onReleaseMany(uids);
-                      else uids.forEach((u) => onRelease && onRelease(u));
-                    }
-                  }}
-                  disabled={!viewList.length}
-                  title="Release all Pokémon currently matched by the filters"
-                >
-                  Release Selected
-                </button>
+                <div className="pcActionsMenuWrap">
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => setActionsOpen((v) => !v)}
+                    disabled={!viewList.length}
+                    title="Bulk actions for all Pokémon currently matched by the filters"
+                    aria-haspopup="menu"
+                    aria-expanded={actionsOpen ? 'true' : 'false'}
+                  >
+                    Actions
+                  </button>
 
-                <button
-                  className="btnSmall"
-                  type="button"
-                  onClick={() => {
-                    const uids = viewList.map((m) => m?.uid).filter(Boolean);
-                    if (!uids.length) return;
-                    if (onSetLockMany) onSetLockMany(uids, true);
-                    else uids.forEach((u) => onToggleLock && onToggleLock(u));
-                  }}
-                  disabled={!viewList.length}
-                  title="Lock all Pokémon currently matched by the filters"
-                >
-                  Lock Selected
-                </button>
+                  {actionsOpen ? (
+                    <div className="pcActionsMenu" role="menu" aria-label="PC Box bulk actions">
+                      <button className="pcActionsItem" type="button" role="menuitem" onClick={handleReleaseSelected}>
+                        Release Selected
+                      </button>
+                      <button className="pcActionsItem" type="button" role="menuitem" onClick={() => handleSetSelectedLock(true)}>
+                        Lock Selected
+                      </button>
+                      <button className="pcActionsItem" type="button" role="menuitem" onClick={() => handleSetSelectedLock(false)}>
+                        Unlock Selected
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <button className="btnSmall" onClick={onClose}>
@@ -374,6 +398,14 @@ export default function PCBox({
                   <span className="pcRarityToggleIcon">
                     <RarityBadge badge={DELTA_BADGE} size={14} />
                   </span>
+                </label>
+                <label className="pcToggle pcRarityToggle" title="Show only Pokémon with a super-rare buff">
+                  <input
+                    type="checkbox"
+                    checked={superRareOnly}
+                    onChange={(e) => setSuperRareOnly(e.target.checked)}
+                  />
+                  <span className="pcRarityToggleIcon gridSuperRareCorner" aria-label="Super-rare buff filter">✦</span>
                 </label>
               </div>
 

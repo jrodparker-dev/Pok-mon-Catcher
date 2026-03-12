@@ -703,6 +703,37 @@ This will NOT reroll buffs. Continue?`
 
     const TEAM_KO_PCT_BY_RARITY = {common: 15, uncommon: 25, rare: 40, legendary: 60};
     const ACTIVE_KO_PCT_BY_RARITY = {common: 25, uncommon: 35, rare: 50, legendary: 80};
+    const SUPER_RARE_KINDS = new Set(['stat-all', 'bst-to-600', 'super-stat-50', 'reroll-stats', 'boost-all-active', 'double-stat-if-low']);
+
+    const normalizeBuff = (buff) => {
+      if (!buff || typeof buff !== 'object') return null;
+      const b = { ...buff };
+
+      if (b.kind === 'stat+10' || b.kind === 'stat+20' || b.kind === 'stat+30') {
+        const fallback = b.kind === 'stat+10' ? 10 : (b.kind === 'stat+20' ? 20 : 30);
+        const amount = Number(b.amount);
+        b.kind = 'stat';
+        b.amount = Number.isFinite(amount) ? amount : fallback;
+      }
+
+      if (b.kind === 'stat+15x2') {
+        const amount = Number(b.amount);
+        b.kind = 'stat2';
+        b.amount = Number.isFinite(amount) ? amount : 15;
+      }
+
+      if (b.kind === 'stat2') {
+        if ((!Array.isArray(b.stats) || b.stats.length < 2) && b.stat) {
+          b.stats = [b.stat].filter(Boolean);
+        }
+      }
+
+      if (b.superRare == null && SUPER_RARE_KINDS.has(String(b.kind || '').toLowerCase())) {
+        b.superRare = true;
+      }
+
+      return b;
+    };
 
     setSave(prev => {
       const caught = Array.isArray(prev.caught) ? prev.caught : [];
@@ -713,8 +744,11 @@ This will NOT reroll buffs. Continue?`
         const rarity = (RARITIES.find(r => r.key === rarityKey)?.key) ? rarityKey : (rarityKey || 'common');
         const badge = (RARITIES.find(r => r.key === rarity)?.badge) ?? mon.badge;
 
-        // Normalize buffs (fill missing pct fields for KO ball buffs if present)
-        const buffs = Array.isArray(mon.buffs) ? mon.buffs.map(b => ({...b})) : [];
+        // Normalize buffs (including legacy buff shapes + super-rare flags)
+        const rawBuffs = Array.isArray(mon.buffs)
+          ? mon.buffs
+          : (mon.buff && typeof mon.buff === 'object' ? [mon.buff] : []);
+        const buffs = rawBuffs.map(normalizeBuff).filter(Boolean);
         for (const b of buffs) {
           if (!b || typeof b !== 'object') continue;
           if (b.kind === 'ko-ball-team' && (b.pct == null || Number.isNaN(Number(b.pct)))) b.pct = TEAM_KO_PCT_BY_RARITY[rarity] ?? 0;
@@ -756,6 +790,17 @@ This will NOT reroll buffs. Continue?`
           const res = applyStatBuffs(baseStats, buffs, Math.random);
           finalStats = res.stats;
           superChangedStats = res.superChangedStats;
+
+          // If old saves had incomplete super-rare metadata, ensure blue-highlighted
+          // stats are still reconstructed from the recomputed final values.
+          const hasAnySuperRareBuff = buffs.some((b) => !!b?.superRare);
+          if (hasAnySuperRareBuff && (!Array.isArray(superChangedStats) || superChangedStats.length === 0)) {
+            const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+            superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
+          }
+          if (Array.isArray(superChangedStats)) {
+            superChangedStats = [...new Set(superChangedStats.filter(Boolean))];
+          }
 
           // Re-apply shiny boost
           if (mon.shiny) {
@@ -1310,6 +1355,9 @@ function setLockManyPokemon(uids, locked) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
+      ? [...new Set(mon.superChangedStats)]
+      : (evolvedRecord.superChangedStats ?? []);
 
     if (mon.isDelta) {
       evolvedRecord.types = mon.types;
@@ -2016,6 +2064,9 @@ function viewSavedRun(summary) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
+      ? [...new Set(mon.superChangedStats)]
+      : (evolvedRecord.superChangedStats ?? []);
     if (mon.isDelta) evolvedRecord.types = mon.types;
 
     updateRunSummaryById(summaryId, (s) => {
