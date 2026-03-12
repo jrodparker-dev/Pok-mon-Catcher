@@ -1368,6 +1368,9 @@ function setLockManyPokemon(uids, locked) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
+      ? [...new Set(mon.superChangedStats)]
+      : (evolvedRecord.superChangedStats ?? []);
 
     if (mon.isDelta) {
       evolvedRecord.types = mon.types;
@@ -2074,6 +2077,9 @@ function viewSavedRun(summary) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
+      ? [...new Set(mon.superChangedStats)]
+      : (evolvedRecord.superChangedStats ?? []);
     if (mon.isDelta) evolvedRecord.types = mon.types;
 
     updateRunSummaryById(summaryId, (s) => {
