@@ -788,11 +788,15 @@ This will NOT reroll buffs. Continue?`
 
         if (baseStats) {
           const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+          const DEBUG_REFRESH_REROLL_WHITELIST = new Set(['flygon']);
+          const monIds = [mon?.formId, mon?.speciesId, mon?.name].map((x) => toID(x)).filter(Boolean);
+          const debugAllowReroll = monIds.some((id) => DEBUG_REFRESH_REROLL_WHITELIST.has(id));
           const hasRerollStatsBuff = buffs.some((b) => String(b?.kind || '').toLowerCase() === 'reroll-stats');
           const hasStoredFinal = keys.every((k) => typeof mon?.finalStats?.[k] === 'number');
 
-          if (hasRerollStatsBuff && hasStoredFinal) {
+          if (hasRerollStatsBuff && hasStoredFinal && !debugAllowReroll) {
             // Never reroll old saved 500-650 stats during refresh; preserve existing rolled stats.
+            // DEBUG: some species can be temporarily whitelisted for forced reroll validation.
             finalStats = { ...mon.finalStats };
             const hasStatSuperRareBuff = buffs.some((b) => !!b?.superRare && ['stat', 'stat2', 'stat-all', 'stat-mult', 'bst-to-600', 'reroll-stats', 'stat+10', 'stat+20', 'stat+30', 'stat+15x2'].includes(String(b?.kind || '').toLowerCase()));
             if (hasStatSuperRareBuff) {
@@ -815,20 +819,28 @@ This will NOT reroll buffs. Continue?`
             superChangedStats = [...new Set(superChangedStats.filter(Boolean))];
           }
 
-          // Re-apply shiny boost
+          // Re-apply shiny boost (exactly once) on top of non-shiny final stats.
           if (mon.shiny) {
+            let shinyBaseStats = { ...(finalStats || {}) };
+            if (hasRerollStatsBuff && hasStoredFinal && !debugAllowReroll) {
+              const prevBoost = mon.shinyBoostStat;
+              if (prevBoost && keys.includes(prevBoost) && typeof shinyBaseStats?.[prevBoost] === 'number') {
+                shinyBaseStats[prevBoost] = Math.max(1, shinyBaseStats[prevBoost] - 50);
+              }
+            }
+
             let shinyBoostStat = mon.shinyBoostStat;
             // Keep shiny bonus aligned to the current lowest stat after any final stat recalculation.
             let minVal = Infinity;
             for (const k of keys) {
-              const v = finalStats?.[k];
+              const v = shinyBaseStats?.[k];
               if (typeof v === 'number') minVal = Math.min(minVal, v);
             }
-            const mins = keys.filter(k => typeof finalStats?.[k] === 'number' && finalStats[k] === minVal);
+            const mins = keys.filter(k => typeof shinyBaseStats?.[k] === 'number' && shinyBaseStats[k] === minVal);
             shinyBoostStat = mins.length
               ? (mins.includes(shinyBoostStat) ? shinyBoostStat : mins[Math.floor(Math.random() * mins.length)])
               : (shinyBoostStat || 'hp');
-            finalStats = {...finalStats, [shinyBoostStat]: (finalStats?.[shinyBoostStat] ?? 0) + 50};
+            finalStats = { ...shinyBaseStats, [shinyBoostStat]: (shinyBaseStats?.[shinyBoostStat] ?? 0) + 50 };
             return {
               ...mon,
               rarity,
