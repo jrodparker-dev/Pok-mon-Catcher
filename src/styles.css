@@ -1725,6 +1725,32 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .pcRarityToggle{padding:6px 8px;}
 .pcRarityToggleIcon{display:inline-flex;align-items:center;justify-content:center;}
 
+.pcActionsMenuWrap{position:relative;display:inline-flex;}
+.pcActionsMenu{
+  position:absolute;
+  top:calc(100% + 6px);
+  right:0;
+  min-width:170px;
+  background:rgba(15,23,42,.98);
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:12px;
+  box-shadow:0 12px 24px rgba(0,0,0,.35);
+  padding:6px;
+  z-index:60;
+}
+.pcActionsItem{
+  width:100%;
+  text-align:left;
+  border:0;
+  background:transparent;
+  color:#fff;
+  border-radius:8px;
+  padding:8px 10px;
+  font-weight:700;
+  cursor:pointer;
+}
+.pcActionsItem:hover{background:rgba(255,255,255,.1);}
+
 
 /* ===== Trainer Profile ===== */
 
