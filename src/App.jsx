@@ -815,17 +815,6 @@ This will NOT reroll buffs. Continue?`
             superChangedStats = [...new Set(superChangedStats.filter(Boolean))];
           }
 
-          // If old saves had incomplete super-rare metadata, ensure blue-highlighted
-          // stats are still reconstructed from the recomputed final values.
-          const hasAnySuperRareBuff = buffs.some((b) => !!b?.superRare);
-          if (hasAnySuperRareBuff && (!Array.isArray(superChangedStats) || superChangedStats.length === 0)) {
-            const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
-            superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
-          }
-          if (Array.isArray(superChangedStats)) {
-            superChangedStats = [...new Set(superChangedStats.filter(Boolean))];
-          }
-
           // Re-apply shiny boost
           if (mon.shiny) {
             let shinyBoostStat = mon.shinyBoostStat;
@@ -2471,10 +2460,6 @@ function viewSavedRun(summary) {
       if (b.kind !== 'stat-mult') continue;
       const k = b.stat;
       if (!k) continue;
-      const baseVal = baseStats?.[k];
-      if (typeof baseVal === 'number' && typeof b.onlyIfBaseBelow === 'number') {
-        if (!(baseVal < b.onlyIfBaseBelow)) continue;
-      }
       const mult = Number(b.mult ?? 2) || 2;
       if (typeof s[k] === 'number') {
         const multiplied = Math.round((s[k] ?? 0) * mult);

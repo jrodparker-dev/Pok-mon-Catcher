@@ -186,7 +186,7 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     const superPool = [
       { kind: 'stat-all', amount: 15, superRare: true },
       { kind: 'bst-to-600', superRare: true },
-      // Always +50 to a random stat; 20% chance to also +50 a second (different) stat
+      // Always +50 to exactly one random stat
       { kind: 'super-stat-50', amount: 50, superRare: true },
       { kind: 'reroll-stats', minBST: 500, maxBST: 650, superRare: true },
       { kind: 'boost-all-active', shinyPct: 5, catchPct: 25, rarityPct: 15, superRare: true },
@@ -196,13 +196,8 @@ export function rollBuffs(rarityKey, pokemonData, rng = Math.random) {
     const chosen = superPool[Math.floor(rng() * superPool.length)];
 
     if (chosen.kind === 'super-stat-50') {
-      const s1 = pickOne(STAT_KEYS, rng);
-      buffs.push({ kind: 'stat', stat: s1, amount: 50, superRare: true });
-      if (rng() < 0.20) {
-        let s2 = pickOne(STAT_KEYS, rng);
-        while (s2 === s1) s2 = pickOne(STAT_KEYS, rng);
-        buffs.push({ kind: 'stat', stat: s2, amount: 50, superRare: true });
-      }
+      const stat = pickOne(STAT_KEYS, rng);
+      buffs.push({ kind: 'stat', stat, amount: 50, superRare: true });
     } else if (chosen.kind === 'double-stat-if-low') {
       const base = pokemonData?.baseStats ?? pokemonData?.stats ?? {};
       const candidates = STAT_KEYS.filter(k => typeof base?.[k] === 'number' && base[k] < 100);
