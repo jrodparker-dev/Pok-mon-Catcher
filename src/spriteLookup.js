@@ -81,10 +81,10 @@ export const FORME_SUFFIXES = [
   'small', 'large', 'super', 'average',
 
   // deoxys-like
-  'attack','defense','speed', "10",
+  'attack','defense','speed', "10", "lowkey", "galarzen", 
 
   //castform
-  'sunny', 'rainy', 'snowy',
+  'sunny', 'rainy', 'snowy', 'sunshine',
 
   // weather trio / others
   'sky','land','sea',
