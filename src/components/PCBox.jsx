@@ -557,7 +557,6 @@ export default function PCBox({
                       </div>
                     ) : null}
 
-                    {p.locked ? <div className="gridLockCorner" title="Locked">🔒</div> : null}
 
                     <SpriteWithFallback
                       className="gridSprite"
@@ -582,7 +581,8 @@ export default function PCBox({
     const fusionName = (p.isFusion && otherClean) ? `${cleanName || raw} / ${otherClean}` : null;
 
     const labelName = fusionName || cleanName || raw; // fallback
-    return alreadyHasDex ? raw : (dex ? `#${dex} ${labelName}` : labelName);
+    const lockPrefix = p.locked ? '🔒 ' : '';
+    return lockPrefix + (alreadyHasDex ? raw : (dex ? `#${dex} ${labelName}` : labelName));
   })()}
 </div>
 
