@@ -57,7 +57,8 @@ function isBannedForm(id, entry) {
     // Don't accidentally ban Meganium
     if (!String(id).startsWith('meganium')) return true;
   }
-  if (entry?.canGigantamax || String(id).includes('gmax') || forme.includes('gmax')) return true;
+  // Only ban explicit Gigantamax forms; base species can still be spawnable.
+  if (String(id).includes('gmax') || forme.includes('gmax')) return true;
 
   // Hard-limit Pikachu line to base forms only
   if (isPikaLine(id, entry)) {
