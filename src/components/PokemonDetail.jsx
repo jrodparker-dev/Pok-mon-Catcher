@@ -36,6 +36,50 @@ function formatVariantName(mon, rawName = null) {
   return base;
 }
 
+function applyGoldenStats(baseStats = {}) {
+  const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  const boosts = [10, 15, 20, 25, 30, 40];
+  const ranked = keys.map((k) => [k, Number(baseStats?.[k] ?? 0)]).sort((a, b) => b[1] - a[1]);
+  const out = { ...baseStats };
+  ranked.forEach(([k], idx) => {
+    out[k] = Math.max(1, Math.min(255, Math.round(Number(out?.[k] ?? 0) + (boosts[idx] ?? 0))));
+  });
+  return out;
+}
+
+function applyMiracleStats(baseStats = {}) {
+  const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  const out = { ...baseStats };
+  keys.forEach((k) => {
+    const v = Number(out?.[k] ?? 0);
+    const mult = v < 100 ? 1.5 : 1.15;
+    out[k] = Math.max(1, Math.min(255, Math.round(v * mult)));
+  });
+  return out;
+}
+
+function applyPrismaticStats(baseStats = {}) {
+  const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  const out = { ...baseStats };
+  keys.forEach((k) => {
+    const v = Number(out?.[k] ?? 0);
+    out[k] = Math.max(1, Math.min(255, Math.round(v * 2)));
+  });
+  return out;
+}
+
+function getVariantAdjustedBaseStats(mon) {
+  const raw = mon?.rawBaseStats ?? mon?.baseStats ?? {};
+  let out = { ...raw };
+  if (!(mon?.isGolden || mon?.isMiracle)) return out;
+  const shouldApplyNow = !!mon?.rawBaseStats || !mon?.variantApplied;
+  if (!shouldApplyNow) return out;
+  if (mon?.isGolden && mon?.isMiracle) return applyPrismaticStats(out);
+  if (mon?.isGolden) return applyGoldenStats(out);
+  if (mon?.isMiracle) return applyMiracleStats(out);
+  return out;
+}
+
 function isBuffLike(value) {
   return !!(value && typeof value === 'object' && typeof value.kind === 'string');
 }
@@ -175,13 +219,22 @@ function SpriteWithFallback({ mon, className }) {
     />
   );
 
+  const sparkleStyles = useMemo(
+    () => Array.from({ length: 8 }, (_, idx) => ({
+      animationDuration: `${(1.0 + Math.random() * 2.2).toFixed(2)}s`,
+      animationDelay: `${(Math.random() * 1.2).toFixed(2)}s`,
+      animationName: (idx % 2 === 0 && Math.random() < 0.5) ? 'miracleTwinkleAlt' : 'miracleTwinkle',
+    })),
+    [mon?.uid, mon?.name, mon?.dexId]
+  );
+
   if (!mon?.isMiracle) return imgEl;
 
   return (
     <div className="spriteFxWrap miracleFx">
       {imgEl}
       <div className="miracleSparkles" aria-hidden="true">
-        <span /><span /><span /><span /><span /><span /><span /><span />
+        {sparkleStyles.map((st, i2) => <span key={i2} style={st} />)}
       </div>
     </div>
   );
@@ -284,6 +337,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
   if (!mon) return null;
 
   const monBuffs = resolveBuffsForDisplay(mon);
+  const variantAdjustedBase = useMemo(() => getVariantAdjustedBaseStats(mon), [mon]);
   const displayFinalStats = getDisplayFinalStats(mon, monBuffs);
 
   const baseRarityBadge = (RARITIES.find(r => r.key === mon.rarity)?.badge ?? null);
@@ -428,11 +482,26 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               {STAT_ORDER.map(([k, label]) => {
-                const base = mon.baseStats?.[k];
+                const baseRaw = mon.rawBaseStats?.[k] ?? mon.baseStats?.[k];
+                const variantBase = variantAdjustedBase?.[k];
                 const final = displayFinalStats?.[k];
-                const changed =
-                  typeof base === 'number' && typeof final === 'number' && base !== final;
                 const superBlue = Array.isArray(mon.superChangedStats) && mon.superChangedStats.includes(k);
+                const isFusion = !!mon.isFusion;
+                const fromOther = isFusion && Array.isArray(mon?.fusionMeta?.statsFromOther) && mon.fusionMeta.statsFromOther.includes(k);
+                const variantChanged = (typeof baseRaw === 'number' && typeof variantBase === 'number' && baseRaw !== variantBase);
+                const buffChanged = (typeof variantBase === 'number' && typeof final === 'number' && variantBase !== final);
+
+                const color = (() => {
+                  if (fromOther) return '#a3e635';
+                  if (buffChanged) return superBlue ? '#60a5fa' : '#facc15';
+                  if (variantChanged && mon?.isGolden && mon?.isMiracle) return '#c4b5fd';
+                  if (variantChanged && mon?.isMiracle) return '#93c5fd';
+                  if (variantChanged && mon?.isGolden) return '#fef08a';
+                  return 'rgba(255,255,255,.95)';
+                })();
+                const textShadow = (variantChanged && mon?.isGolden && !buffChanged && !fromOther)
+                  ? '0 0 8px rgba(254, 240, 138, 0.45)'
+                  : 'none';
 
                 return (
                   <div
@@ -452,15 +521,8 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                       style={{
                         fontWeight: 900,
                         fontSize: 16,
-                        color: (() => {
-                          const isFusion = !!mon.isFusion;
-                          const fromOther = isFusion && Array.isArray(mon?.fusionMeta?.statsFromOther) && mon.fusionMeta.statsFromOther.includes(k);
-                          if (fromOther) return '#a3e635';
-                          // For non-fusion, keep existing behavior
-                          if (changed) return superBlue ? '#60a5fa' : '#facc15';
-                          // Fusion base-body stats should be white
-                          return 'rgba(255,255,255,.95)';
-                        })(), // blue if super-rare changed, else yellow
+                        color,
+                        textShadow,
                       }}
                     >
                       {final ?? '-'}
@@ -470,15 +532,15 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                           fontSize: 12,
                           color: 'rgba(156,163,175,.95)',
                           fontWeight: 700,
+                          textShadow: 'none',
                         }}
                       >
-                        (base {base ?? '-'})
+                        (base {baseRaw ?? '-'})
                       </span>
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              })}            </div>
 
             <div style={{ fontWeight: 900, margin: '14px 0 8px' }}>Moves</div>
 

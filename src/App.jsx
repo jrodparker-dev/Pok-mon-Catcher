@@ -966,11 +966,25 @@ This will NOT reroll buffs. Continue?`
         }
 
         // Recompute finalStats from baseStats + buffs
-        const baseStats = mon.baseStats && typeof mon.baseStats === 'object' ? {...mon.baseStats} : null;
+        const rawBaseStats = (mon.rawBaseStats && typeof mon.rawBaseStats === 'object')
+          ? { ...mon.rawBaseStats }
+          : (mon.baseStats && typeof mon.baseStats === 'object' ? { ...mon.baseStats } : null);
         let finalStats = mon.finalStats && typeof mon.finalStats === 'object' ? {...mon.finalStats} : null;
         let superChangedStats = mon.superChangedStats;
+        const variantApplied = !!mon.variantApplied;
 
-        if (baseStats) {
+        let effectiveBaseStats = rawBaseStats ? { ...rawBaseStats } : null;
+        if (effectiveBaseStats && (mon?.isGolden || mon?.isMiracle)) {
+          // New records carry rawBaseStats + variantApplied=true; older records may have variant baked into baseStats.
+          const shouldApplyNow = !!mon.rawBaseStats || !variantApplied;
+          if (shouldApplyNow) {
+            if (mon?.isGolden && mon?.isMiracle) effectiveBaseStats = applyPrismaticStats(effectiveBaseStats);
+            else if (mon?.isGolden) effectiveBaseStats = applyGoldenStats(effectiveBaseStats);
+            else if (mon?.isMiracle) effectiveBaseStats = applyMiracleStats(effectiveBaseStats);
+          }
+        }
+
+        if (effectiveBaseStats) {
           const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
           const DEBUG_REFRESH_REROLL_WHITELIST = new Set(['flygon']);
           const monIds = [mon?.formId, mon?.speciesId, mon?.name].map((x) => toID(x)).filter(Boolean);
@@ -984,10 +998,10 @@ This will NOT reroll buffs. Continue?`
             finalStats = { ...mon.finalStats };
             const hasStatSuperRareBuff = buffs.some((b) => !!b?.superRare && ['stat', 'stat2', 'stat-all', 'stat-mult', 'bst-to-600', 'reroll-stats', 'stat+10', 'stat+20', 'stat+30', 'stat+15x2'].includes(String(b?.kind || '').toLowerCase()));
             if (hasStatSuperRareBuff) {
-              superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
+              superChangedStats = keys.filter((k) => (effectiveBaseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
             }
           } else {
-            const res = applyStatBuffs(baseStats, buffs, Math.random);
+            const res = applyStatBuffs(effectiveBaseStats, buffs, Math.random);
             finalStats = res.stats;
             superChangedStats = res.superChangedStats;
 
@@ -995,7 +1009,7 @@ This will NOT reroll buffs. Continue?`
             // stats for super-rare buffs that actually touch stats.
             const hasStatSuperRareBuff = buffs.some((b) => !!b?.superRare && ['stat', 'stat2', 'stat-all', 'stat-mult', 'bst-to-600', 'reroll-stats', 'stat+10', 'stat+20', 'stat+30', 'stat+15x2'].includes(String(b?.kind || '').toLowerCase()));
             if (hasStatSuperRareBuff && (!Array.isArray(superChangedStats) || superChangedStats.length === 0)) {
-              superChangedStats = keys.filter((k) => (baseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
+              superChangedStats = keys.filter((k) => (effectiveBaseStats?.[k] ?? null) !== (finalStats?.[k] ?? null));
             }
           }
 
@@ -1033,9 +1047,11 @@ This will NOT reroll buffs. Continue?`
               name,
               fusionBaseName,
               fusionOtherName,
-              baseStats,
+              rawBaseStats: rawBaseStats ?? mon.rawBaseStats ?? null,
+              baseStats: rawBaseStats ?? mon.baseStats,
               finalStats,
               superChangedStats,
+              variantApplied: variantApplied || !!(mon?.isGolden || mon?.isMiracle),
               shinyBoostStat,
             };
           }
@@ -1049,9 +1065,11 @@ This will NOT reroll buffs. Continue?`
           name,
           fusionBaseName,
           fusionOtherName,
-          baseStats: baseStats ?? mon.baseStats,
+          rawBaseStats: rawBaseStats ?? mon.rawBaseStats ?? null,
+          baseStats: rawBaseStats ?? mon.baseStats,
           finalStats,
           superChangedStats,
+          variantApplied: variantApplied || !!(mon?.isGolden || mon?.isMiracle),
         };
       });
 
@@ -2799,7 +2817,9 @@ function viewSavedRun(summary) {
       isMiracle: !!w?.isMiracle,
       shinyBoostStat,
 
-      baseStats: variantBaseStats,
+      rawBaseStats: baseStats,
+      baseStats: baseStats,
+      variantApplied: !!(w?.isGolden || w?.isMiracle),
       finalStats,
       superChangedStats,
       types,
@@ -4114,13 +4134,22 @@ function SpriteWithFallback({ mon, className, alt, title }) {
     />
   );
 
+  const sparkleStyles = React.useMemo(
+    () => Array.from({ length: 8 }, (_, idx) => ({
+      animationDuration: `${(1.0 + Math.random() * 2.2).toFixed(2)}s`,
+      animationDelay: `${(Math.random() * 1.2).toFixed(2)}s`,
+      animationName: (idx % 2 === 0 && Math.random() < 0.5) ? 'miracleTwinkleAlt' : 'miracleTwinkle',
+    })),
+    [mon?.uid, mon?.name, mon?.dexId]
+  );
+
   if (!mon?.isMiracle) return imgEl;
 
   return (
     <div className="spriteFxWrap miracleFx">
       {imgEl}
       <div className="miracleSparkles" aria-hidden="true">
-        <span /><span /><span /><span /><span /><span /><span /><span />
+        {sparkleStyles.map((st, i2) => <span key={i2} style={st} />)}
       </div>
     </div>
   );

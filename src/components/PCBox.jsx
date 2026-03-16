@@ -109,13 +109,22 @@ function SpriteWithFallback({ mon, candidates, alt, className, onLoadSrc }) {
     />
   );
 
+  const sparkleStyles = React.useMemo(
+    () => Array.from({ length: 8 }, (_, idx) => ({
+      animationDuration: `${(1.0 + Math.random() * 2.2).toFixed(2)}s`,
+      animationDelay: `${(Math.random() * 1.2).toFixed(2)}s`,
+      animationName: (idx % 2 === 0 && Math.random() < 0.5) ? 'miracleTwinkleAlt' : 'miracleTwinkle',
+    })),
+    [mon?.uid, mon?.name, mon?.dexId]
+  );
+
   if (!mon?.isMiracle) return imgEl;
 
   return (
     <div className="spriteFxWrap miracleFx">
       {imgEl}
       <div className="miracleSparkles" aria-hidden="true">
-        <span /><span /><span /><span /><span /><span /><span /><span />
+        {sparkleStyles.map((st, i2) => <span key={i2} style={st} />)}
       </div>
     </div>
   );
