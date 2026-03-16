@@ -24,6 +24,18 @@ function cap(s) {
     .join(' ');
 }
 
+
+
+function formatVariantName(mon, rawName = null) {
+  const base = cap(rawName ?? mon?.name ?? '');
+  const isGolden = !!mon?.isGolden;
+  const isMiracle = !!mon?.isMiracle;
+  if (isGolden && isMiracle) return `${base} - Prismatic`;
+  if (isGolden) return `${base} - Golden`;
+  if (isMiracle) return `${base} - Miracle`;
+  return base;
+}
+
 function isBuffLike(value) {
   return !!(value && typeof value === 'object' && typeof value.kind === 'string');
 }
@@ -153,14 +165,25 @@ function SpriteWithFallback({ mon, className }) {
 
   if (!src) return null;
 
-  return (
+  const imgEl = (
     <img
-      className={className}
+      className={[className, mon?.isGolden ? 'goldenSprite' : ''].filter(Boolean).join(' ')}
       src={src}
       alt={mon?.name || ''}
       onLoad={(e) => cacheSpriteSuccess(mon, e.currentTarget.currentSrc || src)}
       onError={() => setIdx((i) => Math.min(i + 1, (candidates?.length ?? 1) - 1))}
     />
+  );
+
+  if (!mon?.isMiracle) return imgEl;
+
+  return (
+    <div className="spriteFxWrap miracleFx">
+      {imgEl}
+      <div className="miracleSparkles" aria-hidden="true">
+        <span /><span /><span /><span /><span /><span /><span /><span />
+      </div>
+    </div>
   );
 }
 
@@ -277,8 +300,8 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                 {baseRarityBadge ? <RarityBadge badge={baseRarityBadge} size={18} /> : null}
               </div>
               <span className="modalTitleText">{mon?.locked ? '🔒 ' : ''}#{mon.dexId ?? mon.id} {(() => {
-                const baseName = cap(mon.fusionBaseName ?? mon.name);
-                const otherName = cap(mon.fusionOtherName ?? '');
+                const baseName = formatVariantName(mon, mon.fusionBaseName ?? mon.name);
+                const otherName = formatVariantName(mon, mon.fusionOtherName ?? '');
                 return (mon?.isFusion && otherName) ? `${baseName} / ${otherName}` : baseName;
               })()}</span>
               {mon.shiny ? <span className="modalTitleIcon" aria-label="Shiny">✨</span> : null}
@@ -468,7 +491,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                   title={(moveTokens ?? 0) > 0 && onReplaceMove ? 'Spend 1 token to replace this move' : undefined}
                 >
                   <div style={{ fontWeight: 900 }}>
-                    {cap(m.name)}
+                    {formatVariantName(m)}
                     {m.kind === 'illegal' ? ' (Illegal)' : ''}
                     {m.kind === 'custom' ? ' (Custom)' : ''}
                   </div>
@@ -516,7 +539,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                     }}
                     style={{ textAlign: 'left' }}
                   >
-                    <div style={{ fontWeight: 900 }}>{cap(m.name)}</div>
+                    <div style={{ fontWeight: 900 }}>{formatVariantName(m)}</div>
                     {m.meta ? (
                       <div style={{ marginTop: 4, color: 'rgba(156,163,175,.95)', fontWeight: 700, fontSize: 12 }}>
                         {cap(m.meta.type)} • {cap(m.meta.damageClass)} • Power {m.meta.power ?? '—'}
