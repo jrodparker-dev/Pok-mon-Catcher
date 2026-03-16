@@ -276,7 +276,7 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                 {isDelta ? <RarityBadge badge={DELTA_BADGE} size={18} /> : null}
                 {baseRarityBadge ? <RarityBadge badge={baseRarityBadge} size={18} /> : null}
               </div>
-              <span className="modalTitleText">#{mon.dexId ?? mon.id} {(() => {
+              <span className="modalTitleText">{mon?.locked ? '🔒 ' : ''}#{mon.dexId ?? mon.id} {(() => {
                 const baseName = cap(mon.fusionBaseName ?? mon.name);
                 const otherName = cap(mon.fusionOtherName ?? '');
                 return (mon?.isFusion && otherName) ? `${baseName} / ${otherName}` : baseName;
