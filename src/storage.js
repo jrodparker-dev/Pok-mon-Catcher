@@ -132,6 +132,16 @@ export function defaultSave() {
       delta: { seen: 0, caught: 0 },
       shiny: { seen: 0, caught: 0 },
     },
+
+    catchbot: {
+      insertedBalls: 0,
+      startedAt: null,
+    },
+
+    idleCatching: {
+      lastUpdatedAt: Date.now(),
+      bag: [],
+    },
   };
 }
 

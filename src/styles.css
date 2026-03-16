@@ -2097,3 +2097,23 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .dexTile.disabled{
   cursor: not-allowed;
 }
+
+.spriteFxWrap{ position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.spriteFxWrap > img{ display:block; }
+.goldenSprite{ filter: sepia(.45) hue-rotate(5deg) saturate(1.6) brightness(1.08) drop-shadow(0 0 10px rgba(255,210,80,.45)); }
+.miracleSparkles{ position:absolute; inset: 8%; pointer-events:none; }
+.miracleSparkles span{ position:absolute; width:4px; height:4px; border-radius:50%; animation: miracleTwinkle 1.4s ease-in-out infinite; }
+.miracleSparkles span:nth-child(1){ top:0; left:20%; background:#fff; }
+.miracleSparkles span:nth-child(2){ top:8%; right:10%; background:#93c5fd; animation-delay:.15s; }
+.miracleSparkles span:nth-child(3){ top:30%; right:0; background:#c4b5fd; animation-delay:.3s; }
+.miracleSparkles span:nth-child(4){ bottom:20%; right:2%; background:#fff; animation-delay:.45s; }
+.miracleSparkles span:nth-child(5){ bottom:2%; right:24%; background:#93c5fd; animation-delay:.6s; }
+.miracleSparkles span:nth-child(6){ bottom:0; left:18%; background:#c4b5fd; animation-delay:.75s; }
+.miracleSparkles span:nth-child(7){ bottom:22%; left:0; background:#fff; animation-delay:.9s; }
+.miracleSparkles span:nth-child(8){ top:16%; left:0; background:#93c5fd; animation-delay:1.05s; }
+@keyframes miracleTwinkle{ 0%,100%{ transform:scale(.6); opacity:.35;} 50%{ transform:scale(1.3); opacity:1;} }
+.idleBagGrid{ margin-top:10px; display:grid; grid-template-columns: repeat(auto-fill, minmax(94px,1fr)); gap:8px; max-height: 52vh; overflow:auto; }
+.idleBagItem{ border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.04); color:var(--text); border-radius:12px; padding:8px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.idleBagSprite{ width:64px; height:64px; object-fit:contain; image-rendering: pixelated; }
+.idleBagName{ font-size:12px; font-weight:800; text-align:center; }
+.idleBagSub{ font-size:11px; opacity:.8; }
