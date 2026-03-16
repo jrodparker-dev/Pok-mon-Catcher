@@ -134,7 +134,8 @@ export function defaultSave() {
     },
 
     catchbot: {
-      insertedBalls: 0,
+      insertedBalls: 0, // legacy aggregate
+      insertedByBall: { poke: 0, great: 0, ultra: 0 },
       startedAt: null,
     },
 
