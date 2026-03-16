@@ -410,6 +410,21 @@ export default function PokemonDetail({ mon, onClose, onEvolve, teamUids, teamMo
                 Shiny bonus: +50 to lowest stat ({(mon.shinyBoostStat || "").toUpperCase()})
               </div>
             ) : null}
+            {(mon?.isGolden && mon?.isMiracle) ? (
+              <div style={{marginTop:-2, marginBottom:10, color:'#a78bfa', fontWeight:800}}>
+                Prismatic bonus: base stats are doubled.
+              </div>
+            ) : null}
+            {(mon?.isGolden && !mon?.isMiracle) ? (
+              <div style={{marginTop:-2, marginBottom:10, color:'#fbbf24', fontWeight:800}}>
+                Golden bonus: ranked base stat boosts applied.
+              </div>
+            ) : null}
+            {(mon?.isMiracle && !mon?.isGolden) ? (
+              <div style={{marginTop:-2, marginBottom:10, color:'#93c5fd', fontWeight:800}}>
+                Miracle bonus: &lt;100 stats ×1.5, ≥100 stats ×1.15.
+              </div>
+            ) : null}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               {STAT_ORDER.map(([k, label]) => {

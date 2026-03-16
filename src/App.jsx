@@ -82,6 +82,16 @@ function applyMiracleStats(baseStats = {}) {
   return out;
 }
 
+function applyPrismaticStats(baseStats = {}) {
+  const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+  const out = { ...baseStats };
+  keys.forEach((k) => {
+    const v = Number(out?.[k] ?? 0);
+    out[k] = Math.max(1, Math.min(255, Math.round(v * 2)));
+  });
+  return out;
+}
+
 function useIsMobile(breakpointPx = 820) {
   const [isMobile, setIsMobile] = React.useState(() => {
     if (typeof window === 'undefined') return false;
@@ -1541,6 +1551,8 @@ function setLockManyPokemon(uids, locked) {
       badge: mon.badge,
       buffs: mon.buffs ?? (mon.buff ? [mon.buff] : []),
       isDelta: !!(mon.isDelta),
+      isGolden: !!(mon.isGolden),
+      isMiracle: !!(mon.isMiracle),
       types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
     };
 
@@ -1554,6 +1566,8 @@ function setLockManyPokemon(uids, locked) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.isGolden = !!(mon.isGolden);
+    evolvedRecord.isMiracle = !!(mon.isMiracle);
     evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
       ? [...new Set(mon.superChangedStats)]
       : (evolvedRecord.superChangedStats ?? []);
@@ -2288,6 +2302,8 @@ function viewSavedRun(summary) {
       badge: mon.badge,
       buffs: mon.buffs ?? (mon.buff ? [mon.buff] : []),
       isDelta: !!(mon.isDelta),
+      isGolden: !!(mon.isGolden),
+      isMiracle: !!(mon.isMiracle),
       types: mon.isDelta ? mon.types : (evolvedBundle.types ?? []),
     };
 
@@ -2301,6 +2317,8 @@ function viewSavedRun(summary) {
 
     evolvedRecord.prevAbilities = [...(mon.prevAbilities ?? []), mon.ability?.name].filter(Boolean);
     evolvedRecord.isDelta = !!(mon.isDelta);
+    evolvedRecord.isGolden = !!(mon.isGolden);
+    evolvedRecord.isMiracle = !!(mon.isMiracle);
     evolvedRecord.superChangedStats = Array.isArray(mon?.superChangedStats)
       ? [...new Set(mon.superChangedStats)]
       : (evolvedRecord.superChangedStats ?? []);
@@ -2741,8 +2759,9 @@ function viewSavedRun(summary) {
 
     const baseStats = w.baseStats ?? {};
     let variantBaseStats = { ...baseStats };
-    if (w?.isGolden) variantBaseStats = applyGoldenStats(variantBaseStats);
-    if (w?.isMiracle) variantBaseStats = applyMiracleStats(variantBaseStats);
+    if (w?.isGolden && w?.isMiracle) variantBaseStats = applyPrismaticStats(variantBaseStats);
+    else if (w?.isGolden) variantBaseStats = applyGoldenStats(variantBaseStats);
+    else if (w?.isMiracle) variantBaseStats = applyMiracleStats(variantBaseStats);
     const { stats: finalStats, superChangedStats } = applyStatBuffs(variantBaseStats, w.buffs ?? w.buff);
 
     let shinyBoostStat = null;
