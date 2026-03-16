@@ -2097,3 +2097,36 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .dexTile.disabled{
   cursor: not-allowed;
 }
+
+.spriteFxWrap{ position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.spriteFxWrap > img{ display:block; }
+.goldenSprite{ filter: sepia(.45) hue-rotate(5deg) saturate(1.6) brightness(1.08) drop-shadow(0 0 10px rgba(255,210,80,.45)); }
+.miracleSparkles{ position:absolute; inset: 8%; pointer-events:none; }
+.miracleSparkles span{ position:absolute; width:4px; height:4px; border-radius:50%; animation: miracleTwinkle 1.8s ease-in-out infinite; opacity:.25; }
+.miracleSparkles span:nth-child(1){ top:0; left:20%; background:#fff; animation-duration:1.17s; animation-delay:.11s; }
+.miracleSparkles span:nth-child(2){ top:8%; right:10%; background:#93c5fd; animation-duration:2.31s; animation-delay:.63s; }
+.miracleSparkles span:nth-child(3){ top:30%; right:0; background:#c4b5fd; animation-duration:1.53s; animation-delay:.37s; }
+.miracleSparkles span:nth-child(4){ bottom:20%; right:2%; background:#fff; animation-duration:2.08s; animation-delay:.82s; }
+.miracleSparkles span:nth-child(5){ bottom:2%; right:24%; background:#93c5fd; animation-duration:1.42s; animation-delay:.04s; }
+.miracleSparkles span:nth-child(6){ bottom:0; left:18%; background:#c4b5fd; animation-duration:2.56s; animation-delay:.57s; }
+.miracleSparkles span:nth-child(7){ bottom:22%; left:0; background:#fff; animation-duration:1.29s; animation-delay:.95s; }
+.miracleSparkles span:nth-child(8){ top:16%; left:0; background:#93c5fd; animation-duration:2.73s; animation-delay:.21s; }
+.miracleSparkles span:nth-child(odd){ animation-name: miracleTwinkle; }
+.miracleSparkles span:nth-child(even){ animation-name: miracleTwinkleAlt; }
+@keyframes miracleTwinkle{
+  0%, 100%{ transform:scale(.45); opacity:.18; }
+  23%{ transform:scale(1.15); opacity:.86; }
+  41%{ transform:scale(.62); opacity:.28; }
+  76%{ transform:scale(1.35); opacity:1; }
+}
+@keyframes miracleTwinkleAlt{
+  0%, 100%{ transform:scale(.52); opacity:.2; }
+  17%{ transform:scale(1.24); opacity:.94; }
+  48%{ transform:scale(.58); opacity:.24; }
+  69%{ transform:scale(1.08); opacity:.78; }
+}
+.idleBagGrid{ margin-top:10px; display:grid; grid-template-columns: repeat(auto-fill, minmax(94px,1fr)); gap:8px; max-height: 52vh; overflow:auto; }
+.idleBagItem{ border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.04); color:var(--text); border-radius:12px; padding:8px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.idleBagSprite{ width:64px; height:64px; object-fit:contain; image-rendering: pixelated; }
+.idleBagName{ font-size:12px; font-weight:800; text-align:center; }
+.idleBagSub{ font-size:11px; opacity:.8; }
