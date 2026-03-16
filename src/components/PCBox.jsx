@@ -56,7 +56,19 @@ function ballImgFromKey(key) {
 }
 
 
-function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
+
+function formatVariantName(mon, rawName) {
+  const base = String(rawName ?? mon?.name ?? '').trim();
+  if (!base) return '';
+  const isGolden = !!mon?.isGolden;
+  const isMiracle = !!mon?.isMiracle;
+  if (isGolden && isMiracle) return `${base} - Prismatic`;
+  if (isGolden) return `${base} - Golden`;
+  if (isMiracle) return `${base} - Miracle`;
+  return base;
+}
+
+function SpriteWithFallback({ mon, candidates, alt, className, onLoadSrc }) {
   const [tick, setTick] = React.useState(0);
   React.useEffect(() => {
     const h = () => setTick((x) => x + 1);
@@ -72,15 +84,19 @@ function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
     setIdx(0);
   }, [tick]);
 
-  const src = (Array.isArray(candidates) && candidates.length)
-    ? candidates[Math.min(idx, candidates.length - 1)]
+  const resolvedCandidates = (Array.isArray(candidates) && candidates.length)
+    ? candidates
+    : getShowdownSpriteCandidates(mon);
+
+  const src = (Array.isArray(resolvedCandidates) && resolvedCandidates.length)
+    ? resolvedCandidates[Math.min(idx, resolvedCandidates.length - 1)]
     : undefined;
 
   if (!src) return null;
 
-  return (
+  const imgEl = (
     <img
-      className={className}
+      className={[className, mon?.isGolden ? 'goldenSprite' : ''].filter(Boolean).join(' ')}
       src={src}
       alt={alt || ''}
       loading="lazy"
@@ -89,8 +105,19 @@ function SpriteWithFallback({ candidates, alt, className, onLoadSrc }) {
         const resolved = e.currentTarget.currentSrc || src;
         if (onLoadSrc) onLoadSrc(resolved);
       }}
-      onError={() => setIdx((i) => Math.min(i + 1, (candidates?.length ?? 1) - 1))}
+      onError={() => setIdx((i) => Math.min(i + 1, (resolvedCandidates?.length ?? 1) - 1))}
     />
+  );
+
+  if (!mon?.isMiracle) return imgEl;
+
+  return (
+    <div className="spriteFxWrap miracleFx">
+      {imgEl}
+      <div className="miracleSparkles" aria-hidden="true">
+        <span /><span /><span /><span /><span /><span /><span /><span />
+      </div>
+    </div>
   );
 }
 
@@ -349,9 +376,9 @@ export default function PCBox({
               <div className="fusionBarLeft">
                 <div className="fusionBarTitle">Fusion Pokémon</div>
                 <div className="fusionBarMon">
-                  <SpriteWithFallback mon={fuseBase} className="fusionBarSprite" alt={fuseBase.name} />
+                  <SpriteWithFallback mon={fuseBase} className="fusionBarSprite" alt={formatVariantName(fuseBase)} />
                   <div className="fusionBarName">
-                    <div style={{ fontWeight: 900 }}>{fuseBase.name}</div>
+                    <div style={{ fontWeight: 900 }}>{formatVariantName(fuseBase)}</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>Select a second Pokémon to fuse with</div>
                   </div>
                 </div>
@@ -531,7 +558,7 @@ export default function PCBox({
                       }
                       setSelectedUid(p.uid);
                     }}
-                    aria-label={`Inspect ${p.name}`}
+                    aria-label={`Inspect ${formatVariantName(p)}`}
                     style={{
                       cursor: 'pointer',
                       position: 'relative',
@@ -559,6 +586,7 @@ export default function PCBox({
 
 
                     <SpriteWithFallback
+                      mon={p}
                       className="gridSprite"
                       candidates={getShowdownSpriteCandidates(p)}
                       alt={p.name}
@@ -580,7 +608,7 @@ export default function PCBox({
     const otherClean = otherRaw.replace(/^\s*#?\d+\s+/i, '').trim();
     const fusionName = (p.isFusion && otherClean) ? `${cleanName || raw} / ${otherClean}` : null;
 
-    const labelName = fusionName || cleanName || raw; // fallback
+    const labelName = formatVariantName(p, fusionName || cleanName || raw); // fallback
     const lockPrefix = p.locked ? '🔒 ' : '';
     return lockPrefix + (alreadyHasDex ? raw : (dex ? `#${dex} ${labelName}` : labelName));
   })()}
@@ -598,12 +626,12 @@ export default function PCBox({
           <div className="pcConfirmCard">
             <div className="pcConfirmTitle">Confirm Fusion</div>
             <div className="pcConfirmText">
-              Do you want to fuse <b>{fuseBase.name}</b> with <b>{fusePick.name}</b>?
+              Do you want to fuse <b>{formatVariantName(fuseBase)}</b> with <b>{formatVariantName(fusePick)}</b>?
             </div>
             <div className="pcConfirmSprites">
-              <SpriteWithFallback mon={fuseBase} className="pcConfirmSprite" alt={fuseBase.name} />
+              <SpriteWithFallback mon={fuseBase} className="pcConfirmSprite" alt={formatVariantName(fuseBase)} />
               <div className="pcConfirmPlus">+</div>
-              <SpriteWithFallback mon={fusePick} className="pcConfirmSprite" alt={fusePick.name} />
+              <SpriteWithFallback mon={fusePick} className="pcConfirmSprite" alt={formatVariantName(fusePick)} />
             </div>
             <div className="pcConfirmBtns">
               <button
