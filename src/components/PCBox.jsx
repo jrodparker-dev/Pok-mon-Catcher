@@ -132,6 +132,8 @@ export default function PCBox({
   const [rarityChecks, setRarityChecks] = useState(() => (prefs.rarityChecks && typeof prefs.rarityChecks === 'object') ? prefs.rarityChecks : ({ common: false, uncommon: false, rare: false, legendary: false, delta: false }));
   const [shinyOnly, setShinyOnly] = useState(!!prefs.shinyOnly);
   const [nonShinyOnly, setNonShinyOnly] = useState(!!prefs.nonShinyOnly);
+  const [lockedOnly, setLockedOnly] = useState(!!prefs.lockedOnly);
+  const [unlockedOnly, setUnlockedOnly] = useState(!!prefs.unlockedOnly);
   const [teamOnly, setTeamOnly] = useState(!!prefs.teamOnly);
   const [sortKey, setSortKey] = useState(() => String(prefs.sortKey ?? 'dex'));
   const [sortDir, setSortDir] = useState(() => (prefs.sortDir === 'desc' ? 'desc' : 'asc'));
@@ -148,13 +150,15 @@ export default function PCBox({
       rarityChecks,
       shinyOnly,
       nonShinyOnly,
+      lockedOnly,
+      unlockedOnly,
       teamOnly,
       sortKey,
       sortDir,
       buffFilter,
       superRareOnly,
     });
-  }, [query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, buffFilter, superRareOnly]);
+  }, [query, rarityChecks, shinyOnly, nonShinyOnly, lockedOnly, unlockedOnly, teamOnly, sortKey, sortDir, buffFilter, superRareOnly]);
   const teamSet = new Set(Array.isArray(teamUids) ? teamUids : []);
   const canAddMore = teamSet.size < 3;
 
@@ -193,6 +197,13 @@ export default function PCBox({
         if (!p.shiny) return false;
       } else if (nonShinyOnly && !shinyOnly) {
         if (p.shiny) return false;
+      }
+
+      // Lock filters (tri-state)
+      if (lockedOnly && !unlockedOnly) {
+        if (!p.locked) return false;
+      } else if (unlockedOnly && !lockedOnly) {
+        if (p.locked) return false;
       }
 
       const isDelta = !!(p.isDelta || p.delta);
@@ -249,7 +260,7 @@ export default function PCBox({
     });
 
     return scored;
-  }, [caughtList, query, rarityChecks, shinyOnly, nonShinyOnly, teamOnly, sortKey, sortDir, teamSet, superRareOnly]);
+  }, [caughtList, query, rarityChecks, shinyOnly, nonShinyOnly, lockedOnly, unlockedOnly, teamOnly, sortKey, sortDir, teamSet, superRareOnly]);
 
   const selectedUids = useMemo(() => viewList.map((m) => m?.uid).filter(Boolean), [viewList]);
 
@@ -418,7 +429,31 @@ export default function PCBox({
                 <input type="checkbox" checked={nonShinyOnly} onChange={(e) => setNonShinyOnly(e.target.checked)} />
                 Non-shiny
               </label>
-<label className="pcToggle" title="Show team only">
+
+              <div
+                className="pcRarityFilters"
+                aria-label="Filter by lock status"
+                title="Filter by lock status"
+              >
+                <label className="pcToggle pcRarityToggle" title="Show locked Pokémon">
+                  <input
+                    type="checkbox"
+                    checked={lockedOnly}
+                    onChange={(e) => setLockedOnly(e.target.checked)}
+                  />
+                  <span className="pcRarityToggleIcon" aria-label="Locked">🔒</span>
+                </label>
+                <label className="pcToggle pcRarityToggle" title="Show unlocked Pokémon">
+                  <input
+                    type="checkbox"
+                    checked={unlockedOnly}
+                    onChange={(e) => setUnlockedOnly(e.target.checked)}
+                  />
+                  <span className="pcRarityToggleIcon" aria-label="Unlocked">🔓</span>
+                </label>
+              </div>
+
+              <label className="pcToggle" title="Show team only">
                 <input type="checkbox" checked={teamOnly} onChange={(e) => setTeamOnly(e.target.checked)} />
                 Team
               </label>
@@ -521,6 +556,8 @@ export default function PCBox({
                         {(Array.isArray(p.buffs) && p.buffs.some(b => b?.superRare)) ? <div className="gridSuperRareCorner" title="Super rare buff!">✦</div> : null}
                       </div>
                     ) : null}
+
+                    {p.locked ? <div className="gridLockCorner" title="Locked">🔒</div> : null}
 
                     <SpriteWithFallback
                       className="gridSprite"
