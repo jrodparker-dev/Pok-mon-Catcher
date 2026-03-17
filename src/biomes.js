@@ -5,7 +5,7 @@ export const BIOMES = [
   { key: 'sea', label: 'Sea' },
   { key: 'grass', label: 'Grass' },
   { key: 'desert', label: 'Desert' },
-  { key: 'tallgrass', label: 'Tall Grass' },
+  { key: 'tallgrass', label: 'Forest' },
   { key: 'snow', label: 'Snow' },
   { key: 'powerplant', label: 'City' },
 ];
