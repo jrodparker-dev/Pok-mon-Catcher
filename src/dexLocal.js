@@ -215,10 +215,24 @@ function biomeWeightForNum(num, biomeName) {
   const primary = String(row?.primaryBiome || 'Grass').toLowerCase();
   const secondary = String(row?.secondaryBiome || '').toLowerCase();
   const target = String(biomeName).toLowerCase();
+  const isMatch = primary === target || secondary === target;
 
-  if (primary === target) return 3;
-  if (secondary === target) return 2;
-  return 1;
+  // Exact-only pool: only Pokémon that list this biome as primary or secondary can spawn.
+  if (target === 'grass' || target === 'forest' || target === 'mountain' || target === 'wormhole') {
+    return isMatch ? 1 : 0;
+  }
+
+  // 95/5 split: matching-biome Pokémon are heavily favored but off-biome Pokémon still appear.
+  if (target === 'cave' || target === 'wetlands' || target === 'power plant / city' || target === 'sea') {
+    return isMatch ? 19 : 1;
+  }
+
+  // 90/10 split.
+  if (target === 'volcanic' || target === 'snow' || target === 'desert') {
+    return isMatch ? 9 : 1;
+  }
+
+  return isMatch ? 3 : 1;
 }
 
 function pickWeightedNumForBiome(biomeKey, rng = Math.random) {
