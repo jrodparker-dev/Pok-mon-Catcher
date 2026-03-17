@@ -1,4 +1,5 @@
 import { toID } from './pokeapi.js';
+import { pokemonBiomes } from './pokemonBiomes.ts';
 
 
 // src/dexLocal.js
@@ -176,15 +177,95 @@ export function getRandomDexId(rng = Math.random) {
 
 // Like pinkmon-generator: return a random dex id, excluding problematic/banned forms.
 export function getRandomSpawnableDexId(rng = Math.random) {
-  const ids = getAllDexIds().filter((id) => {
-    const entry = byId.get(id);
-    if (!entry) return false;
-    if (isBannedForm(id, entry)) return false;
-    // Keep "real" mons only (exclude num <= 0)
-    if (typeof entry.num !== 'number' || entry.num <= 0) return false;
-    return true;
-  });
-  return ids[Math.floor(rng() * ids.length)];
+  return getRandomSpawnableDexIdForBiome(null, rng);
+}
+
+const BIOME_KEY_TO_NAME = {
+  cave: 'Cave',
+  sea: 'Sea',
+  grass: 'Grass',
+  desert: 'Desert',
+  tallgrass: 'Forest',
+  snow: 'Snow',
+  powerplant: 'Power Plant / City',
+  mountain: 'Mountain',
+  wetlands: 'Wetlands',
+  volcanic: 'Volcanic',
+  wormhole: 'Wormhole',
+};
+
+const FORM_IDS_BY_NUM = new Map();
+for (const [id, entry] of byId.entries()) {
+  if (!entry) continue;
+  if (isBannedForm(id, entry)) continue;
+  if (typeof entry.num !== 'number' || entry.num <= 0) continue;
+  const list = FORM_IDS_BY_NUM.get(entry.num) || [];
+  list.push(id);
+  FORM_IDS_BY_NUM.set(entry.num, list);
+}
+
+const BIOME_ENTRY_BY_NUM = new Map(
+  (pokemonBiomes || []).map((p) => [Number(p?.dex), p])
+);
+
+function biomeWeightForNum(num, biomeName) {
+  if (!biomeName) return 1;
+
+  const row = BIOME_ENTRY_BY_NUM.get(num);
+  const primary = String(row?.primaryBiome || 'Grass').toLowerCase();
+  const secondary = String(row?.secondaryBiome || '').toLowerCase();
+  const target = String(biomeName).toLowerCase();
+
+  if (primary === target) return 3;
+  if (secondary === target) return 2;
+  return 1;
+}
+
+function pickWeightedNumForBiome(biomeKey, rng = Math.random) {
+  const biomeName = BIOME_KEY_TO_NAME[String(biomeKey || '').toLowerCase()] || null;
+  const pairs = [];
+  let totalWeight = 0;
+
+  for (const [num, ids] of FORM_IDS_BY_NUM.entries()) {
+    if (!Array.isArray(ids) || !ids.length) continue;
+    const w = biomeWeightForNum(num, biomeName);
+    if (w <= 0) continue;
+    totalWeight += w;
+    pairs.push([num, totalWeight]);
+  }
+
+  if (!pairs.length || totalWeight <= 0) return null;
+  const roll = rng() * totalWeight;
+  for (const [num, ceiling] of pairs) {
+    if (roll < ceiling) return num;
+  }
+  return pairs[pairs.length - 1][0];
+}
+
+export function getRandomSpawnableDexIdForBiome(biomeKey = null, rng = Math.random) {
+  const pickedNum = pickWeightedNumForBiome(biomeKey, rng);
+  if (pickedNum == null) return null;
+
+  const forms = FORM_IDS_BY_NUM.get(pickedNum) || [];
+  if (!forms.length) return null;
+  return forms[Math.floor(rng() * forms.length)];
+}
+
+export function getMissingBiomeSpecies() {
+  const missing = [];
+  for (let n = 1; n <= MAX_POKEDEX_NUM; n++) {
+    if (BIOME_ENTRY_BY_NUM.has(n)) continue;
+    const hit = byNum.get(n);
+    if (!hit?.entry) continue;
+    missing.push({
+      dex: n,
+      id: hit.id,
+      name: hit.entry?.name || String(hit.id),
+      primaryBiome: '',
+      secondaryBiome: '',
+    });
+  }
+  return missing;
 }
 
 export function normalizeStats(psBaseStats) {

@@ -8,6 +8,10 @@ export const BIOMES = [
   { key: 'tallgrass', label: 'Forest' },
   { key: 'snow', label: 'Snow' },
   { key: 'powerplant', label: 'City' },
+  { key: 'mountain', label: 'Mountain' },
+  { key: 'wetlands', label: 'Wetlands' },
+  { key: 'volcanic', label: 'Volcanic' },
+  { key: 'wormhole', label: 'Wormhole' },
 ];
 
 export function rollRandomBiomeKey(rng = Math.random) {

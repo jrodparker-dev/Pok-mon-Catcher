@@ -90,6 +90,18 @@ function getBiomeOverlayStyle(key) {
   if (k === 'powerplant') {
     return { background: '#9aa0a6' };
   }
+  if (k === 'mountain') {
+    return { background: 'linear-gradient(160deg, #8d8f94 0%, #5f6368 100%)' };
+  }
+  if (k === 'wetlands') {
+    return { background: 'linear-gradient(160deg, #3a6b5d 0%, #6c9a8b 100%)' };
+  }
+  if (k === 'volcanic') {
+    return { background: 'linear-gradient(160deg, #4b2b1f 0%, #b3472d 100%)' };
+  }
+  if (k === 'wormhole') {
+    return { background: 'linear-gradient(160deg, #3b1b63 0%, #1f1140 100%)' };
+  }
   if (k === 'temple') {
     return { background: 'linear-gradient(160deg, #5f6368 0%, #2d2f33 100%)' };
   }

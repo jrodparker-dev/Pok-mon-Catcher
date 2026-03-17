@@ -15,7 +15,7 @@ import { rollRandomBiomeKey, getBiomeLabel } from './biomes.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
 import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, saveActiveMiniRun, clearActiveMiniRun, loadMiniSummaries, saveMiniSummaries, addMiniSummary } from './storage.js';
 import { getEvolutionOptions } from './evolution.js';
-import { getRandomSpawnableDexId, getDexEntryByNum } from './dexLocal.js';
+import { getRandomSpawnableDexIdForBiome, getDexEntryByNum } from './dexLocal.js';
 import { spriteFallbacksFromBundle } from './sprites.js';
 import { getAllBaseDexEntries, MAX_POKEDEX_NUM } from './dexLocal.js';
 import { getDexById } from './dexLocal.js';
@@ -2049,7 +2049,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   // Roll ONE wild (used for main spawn + grass slots)
   async function rollOneEncounter(opts = {}) {
     const { trackSeen = true, rarityBonusPct = 0, biomeKey = null } = opts;
-    const dexId = getRandomSpawnableDexId();
+    const dexId = getRandomSpawnableDexIdForBiome(biomeKey);
+    if (!dexId) throw new Error('No spawnable Pokémon available for encounter roll');
     const bundle = await fetchPokemonBundleByDexId(dexId);
 
     const inTemple = String(biomeKey || '').toLowerCase() === TEMPLE_BIOME_KEY;
@@ -2554,8 +2555,9 @@ function viewSavedRun(summary) {
     resetEncounterAssist();
 
     try {
-      const w = await rollOneEncounter();
-      setWild(w);
+      const biomeKey = rollRandomBiomeKey();
+      const w = await rollOneEncounter({ biomeKey });
+      setWild({ ...w, biome: biomeKey });
       setStage('ready');
 
       // Mini run: decrement encounters after a successful spawn
