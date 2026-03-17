@@ -11,7 +11,7 @@ import MiniRunSummaryModal from './components/MiniRunSummaryModal.jsx';
 import MiniRunInfoModal from './components/MiniRunInfoModal.jsx';
 import PokemonDetail from './components/PokemonDetail.jsx';
 import { BALLS, SPECIAL_BALLS, getBallDef, calcCatchChance, computeBallEffect } from './balls.js';
-import { rollRandomBiomeKey } from './biomes.js';
+import { rollRandomBiomeKey, getBiomeLabel } from './biomes.js';
 import { fetchPokemonBundleByDexId, toID } from './pokeapi.js';
 import { defaultSave, defaultMiniRun, loadSave, saveSave, loadActiveMiniRun, saveActiveMiniRun, clearActiveMiniRun, loadMiniSummaries, saveMiniSummaries, addMiniSummary } from './storage.js';
 import { getEvolutionOptions } from './evolution.js';
@@ -29,6 +29,15 @@ const MIRACLE_CHANCE = 1 / 50000;
 const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
 const IDLE_BAG_MAX = 10;
+
+const TEMPLE_BIOME_KEY = 'temple';
+const TEMPLE_SPAWN_CHANCE_BY_BALL = {
+  poke: 5000,
+  great: 4000,
+  ultra: 3000,
+  master: 2000,
+  special: 1000,
+};
 
 import PokeballIcon from './components/PokeballIcon.jsx';
 import PCBox from './components/PCBox.jsx';
@@ -55,6 +64,29 @@ function formatSpawnName(mon) {
   if (isGolden) return `${base} - Golden`;
   if (isMiracle) return `${base} - Miracle`;
   return base;
+}
+
+function hasSuperRareBuff(mon) {
+  return Array.isArray(mon?.buffs) && mon.buffs.some((b) => !!b?.superRare);
+}
+
+function isPrismatic(mon) {
+  return !!mon?.isGolden && !!mon?.isMiracle;
+}
+
+function isIdleBagProtected(mon, isNewSpecies = false) {
+  return !!isNewSpecies || !!mon?.isGolden || !!mon?.isMiracle || isPrismatic(mon) || hasSuperRareBuff(mon);
+}
+
+function getTempleSpawnDenominator(ballKey) {
+  const key = String(ballKey || '').toLowerCase();
+  if (['poke', 'great', 'ultra', 'master'].includes(key)) return TEMPLE_SPAWN_CHANCE_BY_BALL[key];
+  return TEMPLE_SPAWN_CHANCE_BY_BALL.special;
+}
+
+function randomPulseColor() {
+  const hue = Math.floor(Math.random() * 360);
+  return `hsl(${hue} 90% 62%)`;
 }
 
 
@@ -441,6 +473,8 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const monMovesUsedCount = usedMoves.filter(Boolean).length;
   const nextKoChance = [0.05, 0.15, 0.25, 0.45][Math.min(3, movesUsedSinceThrow)] ?? 0.45;
 
+  const wildHasEncounterProtection = !!wild && (!!wild?.isGolden || hasSuperRareBuff(wild));
+
   function setTeamUids(nextUids) {
     const uniq = Array.from(new Set(nextUids)).slice(0, 3);
     setSave(prev => ({
@@ -677,6 +711,44 @@ function grantDailyGiftIfAvailable() {
     setCatchbotClaimPreview(null);
     setShowCatchbot(false);
     setMessage(`Catchbot claimed. Kept ${keepers.length} Pokémon, released ${catchbotClaimPreview.mons.length - keepers.length}.`);
+  }
+
+  function getMonNewness(mon) {
+    if (!mon) return { isNewSpecies: false, isNewVariant: false };
+    const info = getBaseDexInfoFromAny(mon?.dexId ?? mon?.formId ?? mon?.speciesId ?? mon?.name ?? mon?.id ?? mon?.num);
+    const entry = (typeof info?.baseNum === 'number') ? (save?.pokedex?.[String(info.baseNum)] || {}) : {};
+    const rarityKey = String(mon?.rarity || '').toLowerCase();
+    const hasSpecies = (entry?.caught ?? 0) > 0;
+    const hasRarity = !!(rarityKey && entry?.rarityCaught && entry.rarityCaught[rarityKey]);
+    const hasShiny = !!(entry?.shinyCaught ?? 0);
+    const hasDelta = !!(entry?.deltaCaught ?? 0);
+    const isNewSpecies = !hasSpecies;
+    const isNewVariant = hasSpecies && ((rarityKey && !hasRarity) || (!!mon?.shiny && !hasShiny) || (!!mon?.isDelta && !hasDelta));
+    return { isNewSpecies, isNewVariant };
+  }
+
+  function pushIdleBagMonWithProtection(existingBag, mon) {
+    const bag = Array.isArray(existingBag) ? existingBag.slice() : [];
+    if (!mon) return bag;
+    const newness = getMonNewness(mon);
+    bag.push(mon);
+    while (bag.length > IDLE_BAG_MAX) {
+      let dropIdx = -1;
+      for (let i = 0; i < bag.length; i++) {
+        const cur = bag[i];
+        const curNewness = getMonNewness(cur);
+        if (!isIdleBagProtected(cur, curNewness.isNewSpecies)) {
+          dropIdx = i;
+          break;
+        }
+      }
+      if (dropIdx === -1) {
+        if (!isIdleBagProtected(mon, newness.isNewSpecies)) bag.pop();
+        break;
+      }
+      bag.splice(dropIdx, 1);
+    }
+    return bag;
   }
 
   async function pickIdleBagMon(monUid) {
@@ -1454,7 +1526,7 @@ function setLockManyPokemon(uids, locked) {
     // KO roll
     const idx = Math.min(3, movesUsedSinceThrow);
     const koChance = [0.05, 0.15, 0.25, 0.45][idx] ?? 0.45;
-    const ko = Math.random() < koChance;
+    const ko = wildHasEncounterProtection ? false : (Math.random() < koChance);
     setMovesUsedSinceThrow(prev => prev + 1);
 
     if (ko) {
@@ -1965,24 +2037,28 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
   // Roll ONE wild (used for main spawn + grass slots)
   async function rollOneEncounter(opts = {}) {
-    const { trackSeen = true, rarityBonusPct = 0 } = opts;
+    const { trackSeen = true, rarityBonusPct = 0, biomeKey = null } = opts;
     const dexId = getRandomSpawnableDexId();
     const bundle = await fetchPokemonBundleByDexId(dexId);
 
-    const baseRarity = pickWeightedRarity();
+    const inTemple = String(biomeKey || '').toLowerCase() === TEMPLE_BIOME_KEY;
+    const baseRarity = inTemple ? (Math.random() < 0.5 ? (RARITIES.find((r) => r.key === 'rare') || pickWeightedRarity()) : (RARITIES.find((r) => r.key === 'legendary') || pickWeightedRarity())) : pickWeightedRarity();
     const totals = getBuffTotalsFromMons(teamMons, activeTeamUid);
     const rarity = applyRarityBoost(baseRarity, (totals.rarityPct ?? 0) + (Number(rarityBonusPct) || 0));
-    const buffs = rollBuffs(rarity.key, bundle);
+    let buffs = rollBuffs(rarity.key, bundle);
     const baseShiny = settings.shinyCharm ? 0.025 : BASE_SHINY_CHANCE;
     const totals2 = getBuffTotalsFromMons(teamMons, activeTeamUid);
     const shinyMult = (totals2.shinyMult ?? 1);
-    const shinyChance = Math.min(MAX_SHINY_CHANCE, (baseShiny + SHINY_STREAK_BONUS * catchStreak) * shinyMult);
+    const shinyChance = inTemple ? 0.5 : Math.min(MAX_SHINY_CHANCE, (baseShiny + SHINY_STREAK_BONUS * catchStreak) * shinyMult);
     const isShiny = Math.random() < shinyChance;
 
-    const isDelta = rollDelta(rarity.key);
+    const isDelta = inTemple ? (Math.random() < 0.5) : rollDelta(rarity.key);
     const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
-    const isGolden = Math.random() < GOLDEN_CHANCE;
-    const isMiracle = Math.random() < MIRACLE_CHANCE;
+    const isGolden = Math.random() < (inTemple ? (1 / 1000) : GOLDEN_CHANCE);
+    const isMiracle = Math.random() < (inTemple ? (1 / 5000) : MIRACLE_CHANCE);
+    if (inTemple && Math.random() < 0.05 && !hasSuperRareBuff({ buffs })) {
+      buffs = [...buffs, { kind: 'stat-all', amount: 15, superRare: true }];
+    }
     if (trackSeen) {
       bumpSeen(rarity.key, isShiny, isDelta);
       // ✅ Dex seen (base species, regardless of form)
@@ -2010,15 +2086,30 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     };
   }
 
-  async function rollGrassSlots() {
+  async function rollGrassSlots(caughtBallKey = 'poke') {
     try {
+      const templeDenom = getTempleSpawnDenominator(caughtBallKey);
+      const spawnTemple = Number.isFinite(templeDenom) && templeDenom > 0 && (Math.floor(Math.random() * templeDenom) === 0);
+
+      if (spawnTemple) {
+        const templeMon = await rollOneEncounter({ trackSeen: false, biomeKey: TEMPLE_BIOME_KEY });
+        const slots = [0, 1, 2].map((i) => ({
+          ...(templeMon || {}),
+          uid: `${templeMon?.uid || 'temple'}-${i}`,
+          biome: TEMPLE_BIOME_KEY,
+          templeClickable: i === 1,
+        }));
+        setGrassSlots(slots);
+        return;
+      }
+
       const biomeKeys = [rollRandomBiomeKey(), rollRandomBiomeKey(), rollRandomBiomeKey()];
       const mons = await Promise.all([
-        rollOneEncounter({ trackSeen: false }),
-        rollOneEncounter({ trackSeen: false }),
-        rollOneEncounter({ trackSeen: false }),
+        rollOneEncounter({ trackSeen: false, biomeKey: biomeKeys[0] }),
+        rollOneEncounter({ trackSeen: false, biomeKey: biomeKeys[1] }),
+        rollOneEncounter({ trackSeen: false, biomeKey: biomeKeys[2] }),
       ]);
-      const withBiomes = (mons || []).map((m, i) => ({ ...(m || {}), biome: biomeKeys[i] || 'grass' }));
+      const withBiomes = (mons || []).map((m, i) => ({ ...(m || {}), biome: biomeKeys[i] || 'grass', templeClickable: true }));
       setGrassSlots(withBiomes);
     } catch (e) {
       console.error('Failed to roll grass slots', e);
@@ -2028,7 +2119,7 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
   async function chooseGrassSlot(index) {
     const picked = grassSlots[index];
-    if (!picked) return;
+    if (!picked || picked.templeClickable === false) return;
 
     // Hide the other two immediately
     setGrassSlots([]);
@@ -2131,13 +2222,13 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       const elapsed = Math.max(0, now - last);
       const toAdd = Math.floor(elapsed / CATCHBOT_TICK_MS);
       if (toAdd <= 0) return;
-      const bag = Array.isArray(idle?.bag) ? idle.bag.slice() : [];
+      let bag = Array.isArray(idle?.bag) ? idle.bag.slice() : [];
       for (let i = 0; i < toAdd; i++) {
         // eslint-disable-next-line no-await-in-loop
         const m = await generateAutoCatchMon('idle');
-        bag.push(m);
+        bag = pushIdleBagMonWithProtection(bag, m);
       }
-      const nextBag = bag.slice(-IDLE_BAG_MAX);
+      const nextBag = bag.slice();
       if (cancelled) return;
       setSave((prev) => ({
         ...prev,
@@ -2154,6 +2245,13 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       window.clearInterval(id);
     };
   }, [save?.idleCatching?.lastUpdatedAt]);
+
+
+  useEffect(() => {
+    if (String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY) {
+      setTemplePulseColor(randomPulseColor());
+    }
+  }, [wild?.uid, wild?.biome]);
 
   function allBallsEmpty(s) {
     const b = s?.balls ?? {};
@@ -2883,7 +2981,9 @@ function viewSavedRun(summary) {
       pokedex: save.pokedex,
       baseDexNum,
     });
-    if (effect?.forceCatch) {
+    if (wildHasEncounterProtection) {
+      chance = 1;
+    } else if (effect?.forceCatch) {
       chance = 1;
     } else if (effect?.mult) {
       chance = Math.max(0, Math.min(1, chance * Number(effect.mult)));
@@ -2906,7 +3006,7 @@ function viewSavedRun(summary) {
           const nextStreak = catchStreak + 1;
           setCatchStreak(nextStreak);
           resetEncounterAssist();
-          rollGrassSlots();
+          rollGrassSlots(ballKey);
 
           const record = await buildCaughtRecord(wild, spriteUrlResolved, isShiny, ballKey);
 
@@ -3298,7 +3398,10 @@ bumpDexCaughtFromAny(
         ) : null}
 
         {(stage === 'ready' || stage === 'throwing' || stage === 'caught' || stage === 'broke') && wild ? (
-          <div className={`encounter ${hasFullDexCompletion ? 'dexMasterEncounter' : ''}`}>
+          <div
+            className={`encounter ${hasFullDexCompletion ? 'dexMasterEncounter' : ''} ${String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY ? 'templeEncounter' : ''}`}
+            style={String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY ? { '--temple-pulse-color': templePulseColor } : undefined}
+          >
             {/* MOBILE: grass patches above the encounter card */}
             {isMobile && stage === 'caught' && grassSlots.length ? (
               <GrassPatches
@@ -3432,7 +3535,7 @@ bumpDexCaughtFromAny(
                         ) : null}
                         {wild.rarity ? (
                           <div style={{ marginTop: 6 }}>
-                            Rarity: <b>{capName(wild.rarity)}</b> • Buffs: <b>{formatBuffsShort(wild.buffs)}</b>
+                            Rarity: <b>{capName(wild.rarity)}</b> • Buffs: <b>{formatBuffsShort(wild.buffs)}</b> • Biome: <b>{getBiomeLabel(wild?.biome)}</b>
                           </div>
                         ) : null}
                       </>
@@ -3545,7 +3648,7 @@ bumpDexCaughtFromAny(
                       )}
                     </>
                   ) : (
-                    <button className="btnGhost" onClick={resetToIdle}>Reset</button>
+                    <button className="btnGhost" onClick={resetToIdle} disabled={wildHasEncounterProtection} title={wildHasEncounterProtection ? 'Reset disabled for Golden/Super-rare encounters' : 'Reset'}>Reset</button>
                   )}
                 </div>
               </div>
@@ -3694,18 +3797,22 @@ bumpDexCaughtFromAny(
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catching" onClick={() => setShowIdleCatching(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
-              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 5 minutes, up to 10 (new pushes out old).</div></div>
+              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 5 minutes, up to 10 (protected entries cannot be pushed out).</div></div>
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
             <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_MAX}</div>
             <div className="idleBagGrid">
-              {(save?.idleCatching?.bag ?? []).map((m) => (
-                <button key={m.uid} className="idleBagItem" type="button" onClick={() => pickIdleBagMon(m.uid)} title="Keep this Pokémon and reset bag">
+              {(save?.idleCatching?.bag ?? []).map((m) => {
+                const newness = getMonNewness(m);
+                const splashCls = newness.isNewSpecies ? 'new-species' : (newness.isNewVariant ? 'new-variant' : '');
+                return (
+                <button key={m.uid} className={`idleBagItem ${splashCls}`.trim()} type="button" onClick={() => pickIdleBagMon(m.uid)} title="Keep this Pokémon and reset bag">
                   <SpriteWithFallback mon={m} className="idleBagSprite" alt={m.name} title={m.name} />
                   <div className="idleBagName">{formatSpawnName(m)}</div>
                   <div className="idleBagSub">{capName(m.rarity)}</div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
