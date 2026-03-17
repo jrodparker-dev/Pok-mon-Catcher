@@ -111,10 +111,18 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   border-color: rgba(255,255,255,.28);
 }
 .encounter.templeEncounter button{
-  border-color: var(--temple-pulse-color, #a78bfa) !important;
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--temple-pulse-color, #a78bfa) 55%, transparent), 0 0 10px color-mix(in oklab, var(--temple-pulse-color, #a78bfa) 45%, transparent);
+  --temple-btn-color: #ef4444;
+  border-color: var(--temple-btn-color) !important;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--temple-btn-color) 55%, transparent), 0 0 10px color-mix(in oklab, var(--temple-btn-color) 45%, transparent);
   animation: templePulse 1.4s ease-in-out infinite;
 }
+.encounter.templeEncounter button:nth-of-type(7n + 1){ --temple-btn-color: #ef4444; } /* red */
+.encounter.templeEncounter button:nth-of-type(7n + 2){ --temple-btn-color: #f97316; } /* orange */
+.encounter.templeEncounter button:nth-of-type(7n + 3){ --temple-btn-color: #eab308; } /* yellow */
+.encounter.templeEncounter button:nth-of-type(7n + 4){ --temple-btn-color: #22c55e; } /* green */
+.encounter.templeEncounter button:nth-of-type(7n + 5){ --temple-btn-color: #3b82f6; } /* blue */
+.encounter.templeEncounter button:nth-of-type(7n + 6){ --temple-btn-color: #6366f1; } /* indigo */
+.encounter.templeEncounter button:nth-of-type(7n + 7){ --temple-btn-color: #a855f7; } /* violet */
 @keyframes templePulse{
   0%,100%{ filter: brightness(.82); }
   50%{ filter: brightness(1.2); }

@@ -84,11 +84,6 @@ function getTempleSpawnDenominator(ballKey) {
   return TEMPLE_SPAWN_CHANCE_BY_BALL.special;
 }
 
-function randomPulseColor() {
-  const hue = Math.floor(Math.random() * 360);
-  return `hsl(${hue} 90% 62%)`;
-}
-
 
 function applyGoldenStats(baseStats = {}) {
   const keys = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
@@ -2247,12 +2242,6 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   }, [save?.idleCatching?.lastUpdatedAt]);
 
 
-  useEffect(() => {
-    if (String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY) {
-      setTemplePulseColor(randomPulseColor());
-    }
-  }, [wild?.uid, wild?.biome]);
-
   function allBallsEmpty(s) {
     const b = s?.balls ?? {};
     return (b.poke ?? 0) <= 0 && (b.great ?? 0) <= 0 && (b.ultra ?? 0) <= 0 && (b.master ?? 0) <= 0;
@@ -3400,7 +3389,6 @@ bumpDexCaughtFromAny(
         {(stage === 'ready' || stage === 'throwing' || stage === 'caught' || stage === 'broke') && wild ? (
           <div
             className={`encounter ${hasFullDexCompletion ? 'dexMasterEncounter' : ''} ${String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY ? 'templeEncounter' : ''}`}
-            style={String(wild?.biome || '').toLowerCase() === TEMPLE_BIOME_KEY ? { '--temple-pulse-color': templePulseColor } : undefined}
           >
             {/* MOBILE: grass patches above the encounter card */}
             {isMobile && stage === 'caught' && grassSlots.length ? (
