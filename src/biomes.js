@@ -16,5 +16,6 @@ export function rollRandomBiomeKey(rng = Math.random) {
 }
 
 export function getBiomeLabel(key) {
+  if (String(key || '').toLowerCase() === 'temple') return 'Temple';
   return (BIOMES.find(b => b.key === key)?.label) || 'Grass';
 }

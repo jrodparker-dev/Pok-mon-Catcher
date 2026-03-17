@@ -103,6 +103,22 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   border-color: rgba(245, 205, 66, 0.95);
   box-shadow: 0 0 0 2px rgba(245, 205, 66, 0.72), 0 10px 30px rgba(0,0,0,.25), 0 0 24px rgba(245, 205, 66, 0.25);
 }
+
+.encounter.templeEncounter .wildArea,
+.encounter.templeEncounter .teamPane,
+.encounter.templeEncounter .movesPane{
+  background: linear-gradient(165deg, #5f6368 0%, #2d2f33 100%);
+  border-color: rgba(255,255,255,.28);
+}
+.encounter.templeEncounter button{
+  border-color: var(--temple-pulse-color, #a78bfa) !important;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--temple-pulse-color, #a78bfa) 55%, transparent), 0 0 10px color-mix(in oklab, var(--temple-pulse-color, #a78bfa) 45%, transparent);
+  animation: templePulse 1.4s ease-in-out infinite;
+}
+@keyframes templePulse{
+  0%,100%{ filter: brightness(.82); }
+  50%{ filter: brightness(1.2); }
+}
 .wildArea{
   border: 1px solid var(--ring);
   background: rgba(255,255,255,.05);
@@ -2127,6 +2143,8 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 }
 .idleBagGrid{ margin-top:10px; display:grid; grid-template-columns: repeat(auto-fill, minmax(94px,1fr)); gap:8px; max-height: 52vh; overflow:auto; }
 .idleBagItem{ border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.04); color:var(--text); border-radius:12px; padding:8px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.idleBagItem.new-variant{ background: rgba(250, 204, 21, 0.26); }
+.idleBagItem.new-species{ background: rgba(156, 163, 175, 0.28); }
 .idleBagSprite{ width:64px; height:64px; object-fit:contain; image-rendering: pixelated; }
 .idleBagName{ font-size:12px; font-weight:800; text-align:center; }
 .idleBagSub{ font-size:11px; opacity:.8; }
