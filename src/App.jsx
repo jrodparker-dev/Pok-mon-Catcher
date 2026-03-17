@@ -249,6 +249,11 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
   const trainer = { ...(defaultSave().trainer ?? {}), ...(save.trainer ?? {}) };
 
+  const hasGoldenCharm = !!settings.goldenCharm;
+  const hasMiracleCharm = !!settings.miracleCharm;
+  const baseGoldenChance = hasGoldenCharm ? (1 / 6667) : GOLDEN_CHANCE;
+  const baseMiracleChance = hasMiracleCharm ? (1 / 33333) : MIRACLE_CHANCE;
+
   function updateSetting(key, value) {
     setSave(prev => {
       const base = defaultSave();
@@ -1960,7 +1965,13 @@ if (mode !== 'mini') {
   const add = Array.isArray(achievementUnlocks) ? achievementUnlocks.length : 0;
   if (add > 0) balls2.master = (balls2.master ?? 0) + add;
 }
-return { ...cur, pokedex: dex, trainer: nextTrainer, balls: balls2, specialBalls: nextSpecialBalls };
+
+const nextSettings = { ...(cur.settings ?? {}) };
+const trainerLevelForCharms = Math.max(1, Math.floor(nextTrainer?.level ?? 1));
+if (mode !== 'mini' && trainerLevelForCharms >= 50) nextSettings.goldenCharm = true;
+if (mode !== 'mini' && trainerLevelForCharms >= 100) nextSettings.miracleCharm = true;
+
+return { ...cur, pokedex: dex, trainer: nextTrainer, balls: balls2, specialBalls: nextSpecialBalls, settings: nextSettings };
   });
 }
 
@@ -2049,8 +2060,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
     const isDelta = inTemple ? (Math.random() < 0.5) : rollDelta(rarity.key);
     const rolledTypesForWild = isDelta ? rollDeltaTypes(bundle.types ?? []) : (bundle.types ?? []);
-    const isGolden = Math.random() < (inTemple ? (1 / 1000) : GOLDEN_CHANCE);
-    const isMiracle = Math.random() < (inTemple ? (1 / 5000) : MIRACLE_CHANCE);
+    const isGolden = Math.random() < (inTemple ? (1 / 1000) : baseGoldenChance);
+    const isMiracle = Math.random() < (inTemple ? (1 / 5000) : baseMiracleChance);
     if (inTemple && Math.random() < 0.05 && !hasSuperRareBuff({ buffs })) {
       buffs = [...buffs, { kind: 'stat-all', amount: 15, superRare: true }];
     }
@@ -3795,7 +3806,11 @@ bumpDexCaughtFromAny(
                 const splashCls = newness.isNewSpecies ? 'new-species' : (newness.isNewVariant ? 'new-variant' : '');
                 return (
                 <button key={m.uid} className={`idleBagItem ${splashCls}`.trim()} type="button" onClick={() => pickIdleBagMon(m.uid)} title="Keep this Pokémon and reset bag">
-                  <SpriteWithFallback mon={m} className="idleBagSprite" alt={m.name} title={m.name} />
+                  <div className="idleBagSpriteWrap">
+                    <SpriteWithFallback mon={m} className="idleBagSprite" alt={m.name} title={m.name} />
+                    {!!m?.shiny ? <div className="idleTinySparkle idleTinyShiny" title="Shiny" aria-hidden="true">✨</div> : null}
+                    {hasSuperRareBuff(m) ? <div className="idleTinySparkle idleTinySuper" title="Super-rare" aria-hidden="true">✦</div> : null}
+                  </div>
                   <div className="idleBagName">{formatSpawnName(m)}</div>
                   <div className="idleBagSub">{capName(m.rarity)}</div>
                 </button>
@@ -4147,6 +4162,8 @@ bumpDexCaughtFromAny(
               </label>
               <div className="settingsHint">
                 Current base shiny rate: <b>{settings.shinyCharm ? '2.5%' : '1/500'}</b>
+                <br />Golden rate: <b>{hasGoldenCharm ? '1/6667' : '1/10000'}</b> {hasGoldenCharm ? '(Gold Charm active)' : ''}
+                <br />Miracle rate: <b>{hasMiracleCharm ? '1/33333' : '1/50000'}</b> {hasMiracleCharm ? '(Miracle Charm active)' : ''}
               </div>
             </div>
 

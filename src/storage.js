@@ -93,6 +93,10 @@ export function defaultSave() {
       // Shiny rates
       // Base rate is 1/500; enabling Shiny Charm boosts to the old 2.5%.
       shinyCharm: false,
+
+      // Auto-unlocked by trainer level milestones
+      goldenCharm: false,
+      miracleCharm: false,
     },
 
     trainer: defaultTrainer(),
