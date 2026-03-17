@@ -574,6 +574,11 @@ function markPokedexCaught(baseIdRaw, { shiny = false } = {}) {
 }
 
 function grantDailyGiftIfAvailable() {
+  if (mode === 'mini') {
+    setMessage('Daily Gift is disabled during mini-runs.');
+    return;
+  }
+
   const key = todayKey();
   let claimed = false;
 
@@ -857,8 +862,8 @@ function grantDailyGiftIfAvailable() {
 
       const moveTokens = curSettings.moveTokenOnRelease ? ((prev.moveTokens ?? 0) + 1) : (prev.moveTokens ?? 0);
 
-      // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-      const fusionTokens = (String(caught[idx]?.rarity || '').toLowerCase() === 'legendary')
+      const fusionTokenEnabled = mode !== 'mini' || !!curSettings.fusionTokenOnLegendaryRelease;
+      const fusionTokens = (fusionTokenEnabled && String(caught[idx]?.rarity || '').toLowerCase() === 'legendary')
         ? ((prev.fusionTokens ?? 0) + 1)
         : (prev.fusionTokens ?? 0);
       const pendingFusionToken = !!(prev.pendingFusionToken);
@@ -903,8 +908,8 @@ function grantDailyGiftIfAvailable() {
           continue;
         }
         removed++;
-        // Fusion tokens are earned by releasing Legendary-tier Pokémon (enabled in mini-runs too)
-        if (String(m?.rarity || '').toLowerCase() === 'legendary') fusionTokens += 1;
+        const fusionTokenEnabled = mode !== 'mini' || !!curSettings.fusionTokenOnLegendaryRelease;
+        if (fusionTokenEnabled && String(m?.rarity || '').toLowerCase() === 'legendary') fusionTokens += 1;
 
         if (mode !== 'mini' && curSettings.ballOnRelease) {
           const ballKey = pickRandomBallKey();
@@ -2953,7 +2958,7 @@ function viewSavedRun(summary) {
       ...(saveRef.current?.balls ?? save.balls ?? {}),
       [ballKey]: Math.max(0, count - 1),
     };
-    const relevantKeys = ['poke', 'great', 'ultra', 'master', ...((saveRef.current?.specialBalls?.equipped ?? save.specialBalls?.equipped ?? []).slice(0, 4))].filter(Boolean);
+    const relevantKeys = ['poke', 'great', 'ultra', 'master'];
     const ballsEmptyAfterThrow = relevantKeys.every((k) => (ballsAfterThrow?.[k] ?? 0) <= 0);
 
     decrementBall(ballKey);
@@ -3833,6 +3838,10 @@ bumpDexCaughtFromAny(
       <MiniRunInfoModal
         open={showMiniInfo}
         onClose={() => setShowMiniInfo(false)}
+        onEndRunEarly={() => {
+          setShowMiniInfo(false);
+          endMiniRun('Ended early');
+        }}
         save={save}
         mode={mode}
         hasActiveMini={hasActiveMini}
@@ -3851,6 +3860,15 @@ bumpDexCaughtFromAny(
       <MiniRunSummaryModal
         open={!!openSummary}
         onClose={() => {
+          setOpenSummary(null);
+          setSummaryDetail(null);
+        }}
+        onDeleteRun={(sum) => {
+          const id = sum?.id;
+          if (!id) return;
+          const next = runSummaries.filter((x) => x?.id !== id);
+          setRunSummaries(next);
+          saveMiniSummaries(next);
           setOpenSummary(null);
           setSummaryDetail(null);
         }}
@@ -4111,7 +4129,7 @@ bumpDexCaughtFromAny(
               <button
                 className={`btnSmall giftBtn ${((save.lastDailyGiftKey || null) !== todayKey()) ? 'giftBtnAvailable' : 'giftBtnUnavailable'}`}
                 type="button"
-                disabled={((save.lastDailyGiftKey || null) === todayKey())}
+                disabled={(mode === 'mini') || ((save.lastDailyGiftKey || null) === todayKey())}
                 onClick={() => grantDailyGiftIfAvailable()}
                 aria-label="Claim daily gift"
               >
