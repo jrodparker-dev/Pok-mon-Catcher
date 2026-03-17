@@ -14,6 +14,7 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
   const [capCatches, setCapCatches] = useState(20);
 
   const [capBallsEnabled, setCapBallsEnabled] = useState(true);
+  const [fusionTokensEnabled, setFusionTokensEnabled] = useState(false);
 
   const [balls, setBalls] = useState({ poke: 20, great: 10, ultra: 5, master: 0 });
 
@@ -23,7 +24,7 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
     const anyCap = capEncountersEnabled || capCatchesEnabled || capBallsEnabled;
     const totalBalls = Object.values(balls).reduce((a, b) => a + (Number(b) || 0), 0);
     return anyCap && totalBalls > 0;
-  }, [capEncountersEnabled, capCatchesEnabled, balls]);
+  }, [capEncountersEnabled, capCatchesEnabled, capBallsEnabled, balls]);
 
   if (!open) return null;
 
@@ -68,7 +69,8 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
                 disabled={!capCatchesEnabled}
                 onChange={(e) => setCapCatches(clampInt(e.target.value, { min: 1, max: 99999 }))}
               />
-            
+            </div>
+
             <div className="runRow">
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
@@ -80,7 +82,12 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
               </label>
             </div>
 
-</div>
+            <div className="runRow" style={{ marginTop: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={fusionTokensEnabled} onChange={(e) => setFusionTokensEnabled(e.target.checked)} />
+                Fusion Tokens Enabled
+              </label>
+            </div>
 
             <div className="runRow" style={{ marginTop: 10 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -126,6 +133,7 @@ export default function NewMiniRunModal({ open, onClose, onConfirm }) {
               if (!canStart) return;
               onConfirm({
                 shinyCharm,
+                fusionTokensEnabled,
                 balls,
                 caps: {
                   encountersLeft: capEncountersEnabled ? capEncounters : null,

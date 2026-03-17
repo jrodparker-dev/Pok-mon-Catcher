@@ -10,7 +10,7 @@ function sumBalls(balls) {
   return (b.poke ?? 0) + (b.great ?? 0) + (b.ultra ?? 0) + (b.master ?? 0);
 }
 
-export default function MiniRunInfoModal({ open, onClose, save, mode }) {
+export default function MiniRunInfoModal({ open, onClose, save, mode, onEndRunEarly }) {
   if (!open) return null;
   if (mode !== 'mini') return null;
 
@@ -71,6 +71,7 @@ export default function MiniRunInfoModal({ open, onClose, save, mode }) {
 
         <div className="runCapsRow" style={{ marginTop: 6 }}>
           <div className="runCapPill">Shiny charm: {save?.settings?.shinyCharm ? 'ON' : 'OFF'}</div>
+          <div className="runCapPill">Fusion tokens: {save?.settings?.fusionTokenOnLegendaryRelease ? 'ON' : 'OFF'}</div>
           <div className="runCapPill">Caught: {(save?.caught ?? []).length}</div>
           <div className="runCapPill">Move tokens: {save?.moveTokens ?? 0}</div>
         </div>
@@ -87,7 +88,8 @@ export default function MiniRunInfoModal({ open, onClose, save, mode }) {
           ))}
         </div>
 
-        <div className="modalFooter">
+        <div className="modalFooter" style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <button className="btnSmall" onClick={onEndRunEarly} type="button">End Run Early</button>
           <button className="pcButton" onClick={onClose} type="button">Close</button>
         </div>
       </div>

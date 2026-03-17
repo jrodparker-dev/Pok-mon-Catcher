@@ -89,6 +89,7 @@ export function defaultSave() {
       ballOnDefeat: true,
       ballOnRelease: true,
       moveTokenOnRelease: true,
+      fusionTokenOnLegendaryRelease: true,
 
       // Shiny rates
       // Base rate is 1/500; enabling Shiny Charm boosts to the old 2.5%.
@@ -150,7 +151,7 @@ export function defaultSave() {
   };
 }
 
-export function defaultMiniRun({ shinyCharm = false, balls = { poke: 15, great: 8, ultra: 4, master: 0 }, caps = {} } = {}) {
+export function defaultMiniRun({ shinyCharm = false, fusionTokensEnabled = false, balls = { poke: 15, great: 8, ultra: 4, master: 0 }, caps = {} } = {}) {
   const base = defaultSave();
   return {
     ...base,
@@ -163,6 +164,7 @@ export function defaultMiniRun({ shinyCharm = false, balls = { poke: 15, great: 
       ballOnDefeat: false,
       ballOnRelease: false,
       moveTokenOnRelease: false,
+      fusionTokenOnLegendaryRelease: !!fusionTokensEnabled,
     },
     trainer: {
       ...defaultTrainer(),
