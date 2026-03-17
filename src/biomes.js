@@ -4,13 +4,13 @@ export const BIOMES = [
   { key: 'cave', label: 'Cave', appearanceWeight: 1 },
   { key: 'sea', label: 'Sea', appearanceWeight: 1 },
   { key: 'grass', label: 'Grass', appearanceWeight: 1 },
-  { key: 'desert', label: 'Desert', appearanceWeight: 0.1 },
+  { key: 'desert', label: 'Desert', appearanceWeight: 0.75 },
   { key: 'tallgrass', label: 'Forest', appearanceWeight: 1 },
-  { key: 'snow', label: 'Snow', appearanceWeight: 0.1 },
+  { key: 'snow', label: 'Snow', appearanceWeight: 0.75 },
   { key: 'powerplant', label: 'City', appearanceWeight: 1 },
   { key: 'mountain', label: 'Mountain', appearanceWeight: 1 },
   { key: 'wetlands', label: 'Wetlands', appearanceWeight: 1 },
-  { key: 'volcanic', label: 'Volcanic', appearanceWeight: 0.1 },
+  { key: 'volcanic', label: 'Volcanic', appearanceWeight: 0.75 },
   { key: 'wormhole', label: 'Wormhole', appearanceWeight: 0.01 },
 ];
 

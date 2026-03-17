@@ -223,13 +223,9 @@ function biomeWeightForNum(num, biomeName) {
   }
 
   // 95/5 split: matching-biome Pokémon are heavily favored but off-biome Pokémon still appear.
-  if (target === 'cave' || target === 'wetlands' || target === 'power plant / city' || target === 'sea') {
+  if (target === 'cave' || target === 'wetlands' || target === 'power plant / city' || target === 'sea' || 
+    target === 'volcanic' || target === 'snow' || target === 'desert') {
     return isMatch ? 19 : 1;
-  }
-
-  // 90/10 split.
-  if (target === 'volcanic' || target === 'snow' || target === 'desert') {
-    return isMatch ? 9 : 1;
   }
 
   return isMatch ? 3 : 1;
