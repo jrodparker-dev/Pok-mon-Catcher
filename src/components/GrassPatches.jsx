@@ -23,15 +23,17 @@ export default function GrassPatches({ slots, onPick, Sprite }) {
         const biomeOverlayStyle = getBiomeOverlayStyle(biomeKey);
         const isSuperRare = Array.isArray(mon?.buffs) && mon.buffs.some(b => b?.superRare);
         const isShiny = !!mon?.shiny;
+        const disabled = mon?.templeClickable === false;
 
         return (
           <button
             key={mon?.uid || mon?.formId || mon?.dexId || i}
             type="button"
             onClick={() => onPick?.(i)}
-            style={styles.patchBtn}
+            style={{ ...styles.patchBtn, ...(disabled ? styles.patchBtnDisabled : null) }}
+            disabled={disabled}
             aria-label={isShiny ? `${biomeLabel} (shiny nearby)` : biomeLabel}
-            title={isShiny ? `Something sparkly in the ${biomeLabel.toLowerCase()}…` : `${biomeLabel}…`}
+            title={disabled ? 'The temple reveals only one true path.' : (isShiny ? `Something sparkly in the ${biomeLabel.toLowerCase()}…` : `${biomeLabel}…`)}
           >
             {/* Preload sprite behind fully opaque overlay */}
             <div style={styles.preloadWrap} aria-hidden="true">
@@ -88,6 +90,9 @@ function getBiomeOverlayStyle(key) {
   if (k === 'powerplant') {
     return { background: '#9aa0a6' };
   }
+  if (k === 'temple') {
+    return { background: 'linear-gradient(160deg, #5f6368 0%, #2d2f33 100%)' };
+  }
   return { background: '#6ccf62' };
 }
 
@@ -109,6 +114,10 @@ const styles = {
     cursor: 'pointer',
     padding: 0,
     background: '#0b1a10',
+  },
+  patchBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
   },
   preloadWrap: {
     position: 'absolute',

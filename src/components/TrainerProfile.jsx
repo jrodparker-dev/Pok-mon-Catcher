@@ -128,6 +128,9 @@ export default function TrainerProfile({
   const progress = useMemo(() => levelFromTotalXp(trainer.totalXp ?? 0), [trainer.totalXp]);
   const pct = progress.xpToNext ? Math.max(0, Math.min(1, (progress.xpIntoLevel ?? 0) / progress.xpToNext)) : 0;
 
+  const hasGoldenCharm = !!save?.settings?.goldenCharm;
+  const hasMiracleCharm = !!save?.settings?.miracleCharm;
+
   const dexRows = useMemo(() => {
     const rows = [];
     for (const m of DEX_MILESTONES) {
@@ -199,6 +202,12 @@ export default function TrainerProfile({
           <div>
             <div className="modalTitle">Trainer Profile</div>
             <div className="modalSubtitle">Level {fmt(progress.level)} • {fmt(trainer.totalXp)} XP</div>
+            {(hasGoldenCharm || hasMiracleCharm) ? (
+              <div className="profileCharmRow" aria-label="Unlocked charms">
+                {hasGoldenCharm ? <span title="Golden Charm unlocked at level 50">🟨</span> : null}
+                {hasMiracleCharm ? <span title="Miracle Charm unlocked at level 100">🌙</span> : null}
+              </div>
+            ) : null}
           </div>
           <button className="btnSmall" onClick={onClose} type="button">Close</button>
         </div>
