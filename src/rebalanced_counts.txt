@@ -1,0 +1,39 @@
+Rebalanced biome counts
+
+Primary only:
+- Grass: 310
+- Mountain: 52
+- Forest: 140
+- Snow: 30
+- Volcanic: 43
+- Cave: 104
+- Power Plant / City: 58
+- Wetlands: 53
+- Sea: 74
+- Desert: 37
+- Wormhole: 124
+
+Secondary only:
+- Mountain: 248
+- Forest: 155
+- Cave: 94
+- Power Plant / City: 95
+- Wetlands: 132
+- Desert: 55
+- Sea: 56
+- Snow: 45
+- Volcanic: 55
+- Grass: 90
+
+Primary OR Secondary combined:
+- Grass: 400
+- Mountain: 300
+- Forest: 295
+- Snow: 75
+- Volcanic: 98
+- Cave: 198
+- Power Plant / City: 153
+- Wetlands: 185
+- Sea: 130
+- Desert: 92
+- Wormhole: 124
