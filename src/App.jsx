@@ -154,11 +154,26 @@ function compareIdleBagEvictionPriority(a, b) {
   return getIdleBagMonAge(a) - getIdleBagMonAge(b);
 }
 
-function compareIdleBagDisplayPriority(a, b) {
-  const aInfo = getIdleBagTierInfo(a);
-  const bInfo = getIdleBagTierInfo(b);
+function getIdleBagDisplayInfo(mon) {
+  const info = getIdleBagTierInfo(mon);
+  const deltaWithinRarity = info.tier === 'C' && info.subtype === 'delta';
+  return {
+    ...info,
+    deltaWithinRarity,
+    displayTierRank: deltaWithinRarity ? 0 : info.tierRank,
+  };
+}
 
-  if (aInfo.tierRank !== bInfo.tierRank) return bInfo.tierRank - aInfo.tierRank;
+function compareIdleBagDisplayPriority(a, b) {
+  const aInfo = getIdleBagDisplayInfo(a);
+  const bInfo = getIdleBagDisplayInfo(b);
+
+  if (aInfo.displayTierRank !== bInfo.displayTierRank) return bInfo.displayTierRank - aInfo.displayTierRank;
+
+  if (aInfo.deltaWithinRarity || bInfo.deltaWithinRarity) {
+    if (aInfo.rarityRank !== bInfo.rarityRank) return bInfo.rarityRank - aInfo.rarityRank;
+    if (aInfo.deltaWithinRarity !== bInfo.deltaWithinRarity) return aInfo.deltaWithinRarity ? -1 : 1;
+  }
 
   if (aInfo.tier === 'B') {
     if (aInfo.subtype !== bInfo.subtype) return aInfo.subtype === 'combo' ? -1 : 1;
@@ -4240,6 +4255,7 @@ bumpDexCaughtFromAny(
                 <button key={m.uid} className={`idleBagItem ${splashCls}`.trim()} type="button" onClick={() => pickIdleBagMon(m.uid)} title="Keep this Pokémon and reset bag">
                   <div className="idleBagSpriteWrap">
                     <SpriteWithFallback mon={m} className="idleBagSprite" alt={m.name} title={m.name} />
+                    {!!m?.isDelta ? <div className="idleTinySparkle idleTinyDelta" title="Delta" aria-hidden="true">Δ</div> : null}
                     {!!m?.shiny ? <div className="idleTinySparkle idleTinyShiny" title="Shiny" aria-hidden="true">✨</div> : null}
                     {hasSuperRareBuff(m) ? <div className="idleTinySparkle idleTinySuper" title="Super-rare" aria-hidden="true">✦</div> : null}
                   </div>
