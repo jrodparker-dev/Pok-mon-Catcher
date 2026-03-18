@@ -152,6 +152,7 @@ function savePCBoxPrefs(prefs) {
 export default function PCBox({
   caughtList, onClose, onEvolve, teamUids, onToggleTeam, onReplaceTeamMember, moveTokens, onReplaceMove, onRelease, onReleaseMany, onToggleLock, onSetLockMany, fusionTokens, onStartFuse, onCancelFuse, onConfirmFuse, onRefreshAllCaught,
   onUnfuse,
+  onInspectCatchbotNew,
   onSetFusionOtherName,
   onSetFusionSpriteChoice,
 }) {
@@ -552,7 +553,7 @@ export default function PCBox({
               {viewList.map(p => (
                   <button
                     key={p.uid ?? p.id}
-                    className={`gridItem hasBallWm ${p?.isFusion ? "fusionOutline" : ""}`}
+                    className={`gridItem hasBallWm ${p?.isFusion ? "fusionOutline" : ""} ${p?.isCatchbotNew ? 'catchbotFresh' : ''}`.trim()}
                     onClick={() => {
                       if (fuseBaseUid) {
                         if (p.uid === fuseBaseUid) return;
@@ -565,6 +566,7 @@ export default function PCBox({
                         setFusePickUid(p.uid);
                         return;
                       }
+                      if (p?.isCatchbotNew && onInspectCatchbotNew) onInspectCatchbotNew(p.uid);
                       setSelectedUid(p.uid);
                     }}
                     aria-label={`Inspect ${formatVariantName(p)}`}

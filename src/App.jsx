@@ -30,6 +30,13 @@ const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
 const IDLE_BAG_MAX = 10;
 const CATCHBOT_SYNC_INTERVAL_MS = 15000;
+// Idle Grab Bag tick rate. Change this single constant to rebalance the system.
+const IDLE_BAG_TICK_MS = 4 * 60 * 1000;
+// Example presets:
+// const IDLE_BAG_TICK_MS = 10 * 60 * 1000; // 10 minutes
+// const IDLE_BAG_TICK_MS = 5 * 60 * 1000;  // 5 minutes
+// const IDLE_BAG_TICK_MS = 1 * 60 * 1000;  // 1 minute
+// const IDLE_BAG_TICK_MS = 30 * 1000;      // 30 seconds
 const CATCHBOT_BALL_CONFIG = {
   poke: { intervalMs: 5 * 60 * 1000, rarityBonusPct: 0, label: 'Poké Balls' },
   great: { intervalMs: 3 * 60 * 1000, rarityBonusPct: 10, label: 'Great Balls' },
@@ -864,7 +871,7 @@ function grantDailyGiftIfAvailable() {
     const keepers = [];
     for (const mon of catchbotClaimPreview.mons) {
       bumpDexCaughtFromAny(mon?.formId ?? mon?.speciesId ?? mon?.dexId ?? mon?.name, !!mon?.shiny, !!mon?.isDelta, mon?.rarity, mon?.buffs?.length ?? 0, catchStreak);
-      if (catchbotKeepByRarity[String(mon?.rarity || 'common').toLowerCase()]) keepers.push(mon);
+      if (catchbotKeepByRarity[String(mon?.rarity || 'common').toLowerCase()]) keepers.push({ ...mon, isCatchbotNew: true });
     }
     setSave((prev) => ({
       ...prev,
@@ -873,7 +880,7 @@ function grantDailyGiftIfAvailable() {
     }));
     setCatchbotClaimPreview(null);
     setShowCatchbot(false);
-    setMessage(`Catchbot claimed. Kept ${keepers.length} Pokémon, released ${catchbotClaimPreview.mons.length - keepers.length}.`);
+    setMessage(`Catchbot claimed. Kept ${keepers.length} Pokémon, released ${catchbotClaimPreview.mons.length - keepers.length}.${keepers.length > 0 ? ' New Pokémon marked in your PC Box.' : ''}`);
   }
 
   function getMonNewness(mon) {
@@ -993,6 +1000,31 @@ function grantDailyGiftIfAvailable() {
         return { ...m, moves };
       });
       return { ...prev, moveTokens: Math.max(0, tokens - 1), caught: nextCaught };
+    });
+  }
+
+  function clearCatchbotNewMark(uid) {
+    if (!uid) return;
+    setSave((prev) => {
+      let changed = false;
+      const nextCaught = (prev?.caught ?? []).map((m) => {
+        if (!m || m.uid !== uid || !m.isCatchbotNew) return m;
+        changed = true;
+        return { ...m, isCatchbotNew: false };
+      });
+      return changed ? { ...prev, caught: nextCaught } : prev;
+    });
+  }
+
+  function clearAllCatchbotNewMarks() {
+    setSave((prev) => {
+      let changed = false;
+      const nextCaught = (prev?.caught ?? []).map((m) => {
+        if (!m?.isCatchbotNew) return m;
+        changed = true;
+        return { ...m, isCatchbotNew: false };
+      });
+      return changed ? { ...prev, caught: nextCaught } : prev;
     });
   }
 
@@ -2463,7 +2495,7 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       const last = typeof idle?.lastUpdatedAt === 'number' ? idle.lastUpdatedAt : Date.now();
       const now = Date.now();
       const elapsed = Math.max(0, now - last);
-      const toAdd = Math.floor(elapsed / CATCHBOT_TICK_MS);
+      const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
       if (toAdd <= 0) return;
       let bag = Array.isArray(idle?.bag) ? idle.bag.slice() : [];
       for (let i = 0; i < toAdd; i++) {
@@ -2476,7 +2508,7 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       setSave((prev) => ({
         ...prev,
         idleCatching: {
-          lastUpdatedAt: last + toAdd * CATCHBOT_TICK_MS,
+          lastUpdatedAt: last + toAdd * IDLE_BAG_TICK_MS,
           bag: nextBag,
         },
       }));
@@ -3964,9 +3996,13 @@ bumpDexCaughtFromAny(
           onToggleTeam={toggleTeam}
           onReplaceTeamMember={replaceTeamMember}
           onSetActiveTeam={setActiveTeam}
-          onClose={() => setShowPC(false)}
+          onClose={() => {
+            clearAllCatchbotNewMarks();
+            setShowPC(false);
+          }}
           onEvolve={evolveCaught}
-        onSetFusionSpriteChoice={setFusionSpriteChoice}
+          onInspectCatchbotNew={clearCatchbotNewMark}
+          onSetFusionSpriteChoice={setFusionSpriteChoice}
         />
       )}
 
@@ -3998,7 +4034,7 @@ bumpDexCaughtFromAny(
                 <button className="btnGhost" onClick={() => setShowCatchbot(false)} type="button">✕</button>
               </div>
               <div className="settingsHint">Inserted balls: <b>{cb.insertedBalls}</b> (Poké {cb.insertedByBall.poke} • Great {cb.insertedByBall.great} • Ultra {cb.insertedByBall.ultra})</div>
-              <div className="settingsHint">
+              <div className={`settingsHint ${cb.canClaim ? 'settingsHintSuccess' : ''}`}>
                 {cb.insertedBalls === 0 ? 'No active catchbot run.' : (cb.canClaim ? 'Ready to claim!' : `${minutesLeft} minutes remaining (${hoursLeft}h)`)}
               </div>
               {cb.insertedBalls === 0 ? (
@@ -4063,7 +4099,7 @@ bumpDexCaughtFromAny(
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catching" onClick={() => setShowIdleCatching(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
-              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 5 minutes, up to 10 (protected entries cannot be pushed out).</div></div>
+              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes, up to 10 (protected entries cannot be pushed out).</div></div>
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
             <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_MAX}</div>

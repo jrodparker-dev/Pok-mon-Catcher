@@ -436,6 +436,10 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   opacity: .9;
   padding: 4px 4px 0 32px;
 }
+.settingsHintSuccess{
+  color: #86efac;
+  font-weight: 800;
+}
 .catchbotSummaryIntro{
   font-size: 13px;
   opacity: .95;
@@ -577,6 +581,20 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   position: relative;
   text-align: center;
   overflow: hidden;
+}
+.gridItem.catchbotFresh{
+  box-shadow:
+    inset 0 0 0 2px rgba(250, 204, 21, 0.95),
+    inset 0 0 38px rgba(250, 204, 21, 0.18),
+    0 0 0 1px rgba(250, 204, 21, 0.35);
+}
+.gridItem.catchbotFresh::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 34px rgba(250, 204, 21, 0.22);
 }
 
 /* PC Box: ball watermark behind the sprite */
