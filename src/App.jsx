@@ -154,6 +154,43 @@ function compareIdleBagEvictionPriority(a, b) {
   return getIdleBagMonAge(a) - getIdleBagMonAge(b);
 }
 
+function getIdleBagDisplayInfo(mon) {
+  const info = getIdleBagTierInfo(mon);
+  const deltaWithinRarity = info.tier === 'C' && info.subtype === 'delta';
+  return {
+    ...info,
+    deltaWithinRarity,
+    displayTierRank: deltaWithinRarity ? 0 : info.tierRank,
+  };
+}
+
+function compareIdleBagDisplayPriority(a, b) {
+  const aInfo = getIdleBagDisplayInfo(a);
+  const bInfo = getIdleBagDisplayInfo(b);
+
+  if (aInfo.displayTierRank !== bInfo.displayTierRank) return bInfo.displayTierRank - aInfo.displayTierRank;
+
+  if (aInfo.deltaWithinRarity || bInfo.deltaWithinRarity) {
+    if (aInfo.rarityRank !== bInfo.rarityRank) return bInfo.rarityRank - aInfo.rarityRank;
+    if (aInfo.deltaWithinRarity !== bInfo.deltaWithinRarity) return aInfo.deltaWithinRarity ? -1 : 1;
+  }
+
+  if (aInfo.tier === 'B') {
+    if (aInfo.subtype !== bInfo.subtype) return aInfo.subtype === 'combo' ? -1 : 1;
+    if (aInfo.rarityRank !== bInfo.rarityRank) return bInfo.rarityRank - aInfo.rarityRank;
+  }
+
+  if ((aInfo.tier === 'C' || aInfo.tier === 'D') && aInfo.rarityRank !== bInfo.rarityRank) {
+    return bInfo.rarityRank - aInfo.rarityRank;
+  }
+
+  return getIdleBagMonAge(a) - getIdleBagMonAge(b);
+}
+
+function sortIdleBagForDisplay(bag) {
+  return (Array.isArray(bag) ? bag.slice() : []).sort(compareIdleBagDisplayPriority);
+}
+
 function getTempleSpawnDenominator(ballKey) {
   const key = String(ballKey || '').toLowerCase();
   if (['poke', 'great', 'ultra', 'master'].includes(key)) return TEMPLE_SPAWN_CHANCE_BY_BALL[key];
@@ -962,39 +999,44 @@ function grantDailyGiftIfAvailable() {
 
   function pushIdleBagMonWithProtection(existingBag, mon) {
     const bag = Array.isArray(existingBag) ? existingBag.slice() : [];
-    if (!mon) return bag;
+    if (!mon) return sortIdleBagForDisplay(bag);
 
-    const replaceable = bag
+    const replacementCandidates = bag
       .map((cur, index) => {
         const newness = getMonNewness(cur);
+        const isCaughtVariant = !newness.isNewSpecies && !newness.isNewVariant;
         return {
           cur,
           index,
-          isCaughtVariant: !newness.isNewSpecies && !newness.isNewVariant,
+          isCaughtVariant,
+          canUseMainProtection: canIdleBagMonBeReplaced(cur, mon),
         };
-      })
-      .filter(({ cur, isCaughtVariant }) => isCaughtVariant || canIdleBagMonBeReplaced(cur, mon))
-      .sort((a, b) => {
-        if (a.isCaughtVariant !== b.isCaughtVariant) return a.isCaughtVariant ? -1 : 1;
-        return compareIdleBagEvictionPriority(a.cur, b.cur);
       });
 
-    if (bag.length >= IDLE_BAG_SOFT_MAX && replaceable.length) {
-      bag.splice(replaceable[0].index, 1);
+    const duplicateCandidates = replacementCandidates
+      .filter(({ isCaughtVariant }) => isCaughtVariant)
+      .sort((a, b) => compareIdleBagEvictionPriority(a.cur, b.cur));
+
+    if (bag.length >= IDLE_BAG_SOFT_MAX && duplicateCandidates.length) {
+      bag.splice(duplicateCandidates[0].index, 1);
       bag.push(mon);
-      return bag;
+      return sortIdleBagForDisplay(bag);
     }
 
     if (bag.length < IDLE_BAG_HARD_MAX) {
       bag.push(mon);
-      return bag;
+      return sortIdleBagForDisplay(bag);
     }
 
-    if (!replaceable.length) return bag;
+    const protectionCandidates = replacementCandidates
+      .filter(({ canUseMainProtection }) => canUseMainProtection)
+      .sort((a, b) => compareIdleBagEvictionPriority(a.cur, b.cur));
 
-    bag.splice(replaceable[0].index, 1);
+    if (!protectionCandidates.length) return sortIdleBagForDisplay(bag);
+
+    bag.splice(protectionCandidates[0].index, 1);
     bag.push(mon);
-    return bag;
+    return sortIdleBagForDisplay(bag);
   }
 
   async function pickIdleBagMon(monUid) {
@@ -4201,18 +4243,19 @@ bumpDexCaughtFromAny(
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catching" onClick={() => setShowIdleCatching(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
-              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes. Once the bag reaches the soft cap of {IDLE_BAG_SOFT_MAX}, exact Pokédex duplicates are pushed first; the hard cap is {IDLE_BAG_HARD_MAX}.</div></div>
+              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes. At {IDLE_BAG_SOFT_MAX}/{IDLE_BAG_HARD_MAX}, already-logged Pokédex entries are pushed first; the tier-based protection logic only starts once the bag is full.</div></div>
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
             <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_HARD_MAX} (soft cap {IDLE_BAG_SOFT_MAX})</div>
             <div className="idleBagGrid">
-              {(save?.idleCatching?.bag ?? []).map((m) => {
+              {sortIdleBagForDisplay(save?.idleCatching?.bag ?? []).map((m) => {
                 const newness = getMonNewness(m);
                 const splashCls = newness.isNewSpecies ? 'new-species' : (newness.isNewVariant ? 'new-variant' : '');
                 return (
                 <button key={m.uid} className={`idleBagItem ${splashCls}`.trim()} type="button" onClick={() => pickIdleBagMon(m.uid)} title="Keep this Pokémon and reset bag">
                   <div className="idleBagSpriteWrap">
                     <SpriteWithFallback mon={m} className="idleBagSprite" alt={m.name} title={m.name} />
+                    {!!m?.isDelta ? <div className="idleTinySparkle idleTinyDelta" title="Delta" aria-hidden="true">Δ</div> : null}
                     {!!m?.shiny ? <div className="idleTinySparkle idleTinyShiny" title="Shiny" aria-hidden="true">✨</div> : null}
                     {hasSuperRareBuff(m) ? <div className="idleTinySparkle idleTinySuper" title="Super-rare" aria-hidden="true">✦</div> : null}
                   </div>
