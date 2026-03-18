@@ -93,11 +93,32 @@ export async function fetchPokemonBundle(id) {
 }
 
 
+function resolvePokeApiDexNum(hit) {
+  if (!hit?.entry) return null;
+  if (hit.num >= 1 && hit.num <= MAX_POKEMON_ID) return hit.num;
+
+  const fallbackId = toID(hit.entry.baseSpecies || hit.entry.name || '');
+  if (!fallbackId) return null;
+
+  const fallbackHit = getDexById({ id: fallbackId });
+  if (fallbackHit?.num >= 1 && fallbackHit.num <= MAX_POKEMON_ID) {
+    return fallbackHit.num;
+  }
+
+  return null;
+}
+
 // Fetch bundle but force the dex entry by exact PS dex id (handles regional forms & custom forms)
 export async function fetchPokemonBundleByDexId(dexId) {
   const hit = getDexById({id: dexId});
   if (!hit || !hit.entry) throw new Error(`Unknown dex id: ${dexId}`);
-  const base = await fetchPokemonBundle(hit.num);
+
+  const pokeApiDexNum = resolvePokeApiDexNum(hit);
+  if (!pokeApiDexNum) {
+    throw new Error(`No PokéAPI species mapping available for dex id: ${dexId}`);
+  }
+
+  const base = await fetchPokemonBundle(pokeApiDexNum);
   // Override everything that should come from local dex entry
   const dexEntry = hit.entry;
     return {
@@ -105,10 +126,10 @@ export async function fetchPokemonBundleByDexId(dexId) {
     dexEntry: dexEntry,
 
     // IMPORTANT:
-    // base.id is the National Dex number (hit.num). Keep it numeric.
-    // Put the PS/string identifier into a different field.
+    // base.id is the PokéAPI-backed National Dex number. Keep it numeric.
+    // Put the local/custom numeric identifier into num and the PS/string identifier into dexId.
     dexId: dexId,          // string id like "charizard", "torterra", "pikachualola"
-    num: hit.num,          // numeric dex number (redundant but handy)
+    num: hit.num,          // local dex number (can differ for custom entries such as sandiron)
     name: dexEntry.name ?? base.name,
 
     baseStats: dexEntry.baseStats ? normalizeStats(dexEntry.baseStats) : base.baseStats,
