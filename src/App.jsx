@@ -30,6 +30,8 @@ const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
 const IDLE_BAG_MAX = 10;
 const CATCHBOT_SYNC_INTERVAL_MS = 15000;
+const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
+const IDLE_BAG_OPEN_SYNC_INTERVAL_MS = 1000;
 // Idle Grab Bag tick rate. Change this single constant to rebalance the system.
 const IDLE_BAG_TICK_MS = 4 * 60 * 1000;
 // Example presets:
@@ -2514,12 +2516,15 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       }));
     }
     tickIdle();
-    const id = window.setInterval(tickIdle, 30000);
+    const id = window.setInterval(
+      tickIdle,
+      showIdleCatching ? IDLE_BAG_OPEN_SYNC_INTERVAL_MS : IDLE_BAG_SYNC_INTERVAL_MS
+    );
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [save?.idleCatching?.lastUpdatedAt]);
+  }, [save?.idleCatching?.lastUpdatedAt, showIdleCatching]);
 
 
   function allBallsEmpty(s) {
