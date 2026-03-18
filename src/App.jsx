@@ -105,13 +105,20 @@ function getIdleBagTierInfo(mon) {
   const isDelta = !!mon?.isDelta;
   const isSuperRare = hasSuperRareBuff(mon);
   const specialCount = Number(isShiny) + Number(isDelta) + Number(isSuperRare);
-  const immutable = isPrismatic(mon) || !!mon?.isMiracle || !!mon?.isGolden || (isShiny && isDelta && isSuperRare);
 
-  if (immutable) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'immutable' };
+  if (isPrismatic(mon)) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'prismatic' };
+  if (mon?.isMiracle) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'miracle' };
+  if (mon?.isGolden) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'golden' };
+  if (isShiny && isDelta && isSuperRare) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'immutable' };
   if (specialCount >= 2) return { tier: 'B', tierRank: 2, rarityRank, subtype: 'combo' };
   if (isSuperRare) return { tier: 'B', tierRank: 2, rarityRank, subtype: 'super-rare' };
   if (isShiny || isDelta) return { tier: 'C', tierRank: 1, rarityRank, subtype: isShiny ? 'shiny' : 'delta' };
   return { tier: 'D', tierRank: 0, rarityRank, subtype: rarityKey };
+}
+
+function isIdleBagProtectedMon(mon) {
+  const subtype = getIdleBagTierInfo(mon).subtype;
+  return subtype === 'prismatic' || subtype === 'miracle' || subtype === 'golden';
 }
 
 function getIdleBagMonAge(mon) {
@@ -157,10 +164,17 @@ function compareIdleBagEvictionPriority(a, b) {
 function getIdleBagDisplayInfo(mon) {
   const info = getIdleBagTierInfo(mon);
   const deltaWithinRarity = info.tier === 'C' && info.subtype === 'delta';
+  const protectedPriority = {
+    prismatic: 3,
+    miracle: 2,
+    golden: 1,
+    immutable: 0,
+  }[info.subtype] ?? -1;
   return {
     ...info,
     deltaWithinRarity,
     displayTierRank: deltaWithinRarity ? 0 : info.tierRank,
+    protectedPriority,
   };
 }
 
@@ -169,6 +183,11 @@ function compareIdleBagDisplayPriority(a, b) {
   const bInfo = getIdleBagDisplayInfo(b);
 
   if (aInfo.displayTierRank !== bInfo.displayTierRank) return bInfo.displayTierRank - aInfo.displayTierRank;
+
+  if (aInfo.tier === 'A' && bInfo.tier === 'A') {
+    if (aInfo.protectedPriority !== bInfo.protectedPriority) return bInfo.protectedPriority - aInfo.protectedPriority;
+    if (aInfo.rarityRank !== bInfo.rarityRank) return bInfo.rarityRank - aInfo.rarityRank;
+  }
 
   if (aInfo.deltaWithinRarity || bInfo.deltaWithinRarity) {
     if (aInfo.rarityRank !== bInfo.rarityRank) return bInfo.rarityRank - aInfo.rarityRank;
@@ -1014,7 +1033,7 @@ function grantDailyGiftIfAvailable() {
       });
 
     const duplicateCandidates = replacementCandidates
-      .filter(({ isCaughtVariant }) => isCaughtVariant)
+      .filter(({ cur, isCaughtVariant }) => isCaughtVariant && !isIdleBagProtectedMon(cur))
       .sort((a, b) => compareIdleBagEvictionPriority(a.cur, b.cur));
 
     if (bag.length >= IDLE_BAG_SOFT_MAX && duplicateCandidates.length) {
