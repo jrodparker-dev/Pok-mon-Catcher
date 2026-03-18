@@ -2505,26 +2505,28 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
         const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
         if (toAdd <= 0) return;
 
-        let bag = Array.isArray(idle?.bag) ? idle.bag.slice() : [];
+        const additions = [];
         for (let i = 0; i < toAdd; i++) {
           // eslint-disable-next-line no-await-in-loop
           const m = await generateAutoCatchMon('idle');
-          bag = pushIdleBagMonWithProtection(bag, m);
+          additions.push(m);
         }
 
         if (cancelled) return;
 
         const processedLastUpdatedAt = last + toAdd * IDLE_BAG_TICK_MS;
-        const nextBag = bag.slice();
         setSave((prev) => {
           const prevIdle = prev?.idleCatching ?? {};
-          const prevLast = typeof prevIdle?.lastUpdatedAt === 'number' ? prevIdle.lastUpdatedAt : null;
-          if (prevLast !== null && prevLast !== last) return prev;
+          const prevLast = typeof prevIdle?.lastUpdatedAt === 'number' ? prevIdle.lastUpdatedAt : last;
+          let nextBag = Array.isArray(prevIdle?.bag) ? prevIdle.bag.slice() : [];
+          additions.forEach((m) => {
+            nextBag = pushIdleBagMonWithProtection(nextBag, m);
+          });
           return {
             ...prev,
             idleCatching: {
               ...prevIdle,
-              lastUpdatedAt: processedLastUpdatedAt,
+              lastUpdatedAt: Math.max(prevLast, processedLastUpdatedAt),
               bag: nextBag,
             },
           };
