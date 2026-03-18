@@ -142,6 +142,8 @@ export function defaultSave() {
       insertedBalls: 0, // legacy aggregate
       insertedByBall: { poke: 0, great: 0, ultra: 0 },
       startedAt: null,
+      debugInstant: false,
+      generated: [],
     },
 
     idleCatching: {
