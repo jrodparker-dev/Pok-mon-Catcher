@@ -28,7 +28,8 @@ const GOLDEN_CHANCE = 1 / 10000;
 const MIRACLE_CHANCE = 1 / 50000;
 const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
-const IDLE_BAG_MAX = 10;
+const IDLE_BAG_SOFT_MAX = 10;
+const IDLE_BAG_HARD_MAX = 100;
 const CATCHBOT_SYNC_INTERVAL_MS = 15000;
 const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
 const IDLE_BAG_OPEN_SYNC_INTERVAL_MS = 1000;
@@ -90,8 +91,67 @@ function isPrismatic(mon) {
   return !!mon?.isGolden && !!mon?.isMiracle;
 }
 
-function isIdleBagProtected(mon, isNewSpecies = false) {
-  return !!isNewSpecies || !!mon?.isGolden || !!mon?.isMiracle || isPrismatic(mon) || hasSuperRareBuff(mon);
+const IDLE_BAG_RARITY_RANK = {
+  common: 0,
+  uncommon: 1,
+  rare: 2,
+  legendary: 3,
+};
+
+function getIdleBagTierInfo(mon) {
+  const rarityKey = String(mon?.rarity || 'common').toLowerCase();
+  const rarityRank = IDLE_BAG_RARITY_RANK[rarityKey] ?? 0;
+  const isShiny = !!mon?.shiny;
+  const isDelta = !!mon?.isDelta;
+  const isSuperRare = hasSuperRareBuff(mon);
+  const specialCount = Number(isShiny) + Number(isDelta) + Number(isSuperRare);
+  const immutable = isPrismatic(mon) || !!mon?.isMiracle || !!mon?.isGolden || (isShiny && isDelta && isSuperRare);
+
+  if (immutable) return { tier: 'A', tierRank: 3, rarityRank, subtype: 'immutable' };
+  if (specialCount >= 2) return { tier: 'B', tierRank: 2, rarityRank, subtype: 'combo' };
+  if (isSuperRare) return { tier: 'B', tierRank: 2, rarityRank, subtype: 'super-rare' };
+  if (isShiny || isDelta) return { tier: 'C', tierRank: 1, rarityRank, subtype: isShiny ? 'shiny' : 'delta' };
+  return { tier: 'D', tierRank: 0, rarityRank, subtype: rarityKey };
+}
+
+function getIdleBagMonAge(mon) {
+  return typeof mon?.caughtAt === 'number' ? mon.caughtAt : Number.MAX_SAFE_INTEGER;
+}
+
+function canIdleBagMonBeReplaced(existingMon, incomingMon) {
+  const existing = getIdleBagTierInfo(existingMon);
+  const incoming = getIdleBagTierInfo(incomingMon);
+
+  if (existing.tier === 'A') return false;
+  if (incoming.tierRank > existing.tierRank) return true;
+  if (incoming.tierRank < existing.tierRank) return false;
+
+  if (existing.tier === 'B') {
+    if (existing.subtype === 'combo' || incoming.subtype === 'combo') return false;
+    return incoming.rarityRank > existing.rarityRank;
+  }
+
+  if (existing.tier === 'C') return false;
+  if (existing.tier === 'D') return incoming.rarityRank > existing.rarityRank;
+  return false;
+}
+
+function compareIdleBagEvictionPriority(a, b) {
+  const aInfo = getIdleBagTierInfo(a);
+  const bInfo = getIdleBagTierInfo(b);
+
+  if (aInfo.tierRank !== bInfo.tierRank) return aInfo.tierRank - bInfo.tierRank;
+
+  if (aInfo.tier === 'B') {
+    if (aInfo.subtype !== bInfo.subtype) return aInfo.subtype === 'super-rare' ? -1 : 1;
+    if (aInfo.rarityRank !== bInfo.rarityRank) return aInfo.rarityRank - bInfo.rarityRank;
+  }
+
+  if (aInfo.tier === 'D' && aInfo.rarityRank !== bInfo.rarityRank) {
+    return aInfo.rarityRank - bInfo.rarityRank;
+  }
+
+  return getIdleBagMonAge(a) - getIdleBagMonAge(b);
 }
 
 function getTempleSpawnDenominator(ballKey) {
@@ -903,24 +963,21 @@ function grantDailyGiftIfAvailable() {
   function pushIdleBagMonWithProtection(existingBag, mon) {
     const bag = Array.isArray(existingBag) ? existingBag.slice() : [];
     if (!mon) return bag;
-    const newness = getMonNewness(mon);
-    bag.push(mon);
-    while (bag.length > IDLE_BAG_MAX) {
-      let dropIdx = -1;
-      for (let i = 0; i < bag.length; i++) {
-        const cur = bag[i];
-        const curNewness = getMonNewness(cur);
-        if (!isIdleBagProtected(cur, curNewness.isNewSpecies)) {
-          dropIdx = i;
-          break;
-        }
-      }
-      if (dropIdx === -1) {
-        if (!isIdleBagProtected(mon, newness.isNewSpecies)) bag.pop();
-        break;
-      }
-      bag.splice(dropIdx, 1);
+
+    if (bag.length < IDLE_BAG_HARD_MAX) {
+      bag.push(mon);
+      return bag;
     }
+
+    const replaceable = bag
+      .map((cur, index) => ({ cur, index }))
+      .filter(({ cur }) => canIdleBagMonBeReplaced(cur, mon))
+      .sort((a, b) => compareIdleBagEvictionPriority(a.cur, b.cur));
+
+    if (!replaceable.length) return bag;
+
+    bag.splice(replaceable[0].index, 1);
+    bag.push(mon);
     return bag;
   }
 
@@ -4128,10 +4185,10 @@ bumpDexCaughtFromAny(
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catching" onClick={() => setShowIdleCatching(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
-              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes, up to 10 (protected entries cannot be pushed out).</div></div>
+              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes. Soft cap {IDLE_BAG_SOFT_MAX}, hard cap {IDLE_BAG_HARD_MAX}; at the hard cap, lower-tier older entries are pushed out first.</div></div>
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
-            <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_MAX}</div>
+            <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_HARD_MAX} (soft cap {IDLE_BAG_SOFT_MAX})</div>
             <div className="idleBagGrid">
               {(save?.idleCatching?.bag ?? []).map((m) => {
                 const newness = getMonNewness(m);
