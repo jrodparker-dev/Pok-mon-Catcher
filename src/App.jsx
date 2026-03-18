@@ -29,7 +29,7 @@ const MIRACLE_CHANCE = 1 / 50000;
 const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
 const IDLE_BAG_SOFT_MAX = 10;
-const IDLE_BAG_HARD_MAX = 100;
+const IDLE_BAG_HARD_MAX = 50;
 const CATCHBOT_SYNC_INTERVAL_MS = 15000;
 const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
 const IDLE_BAG_OPEN_SYNC_INTERVAL_MS = 1000;
@@ -964,15 +964,31 @@ function grantDailyGiftIfAvailable() {
     const bag = Array.isArray(existingBag) ? existingBag.slice() : [];
     if (!mon) return bag;
 
-    if (bag.length < IDLE_BAG_HARD_MAX) {
+    const replaceable = bag
+      .map((cur, index) => {
+        const newness = getMonNewness(cur);
+        return {
+          cur,
+          index,
+          isCaughtVariant: !newness.isNewSpecies && !newness.isNewVariant,
+        };
+      })
+      .filter(({ cur, isCaughtVariant }) => isCaughtVariant || canIdleBagMonBeReplaced(cur, mon))
+      .sort((a, b) => {
+        if (a.isCaughtVariant !== b.isCaughtVariant) return a.isCaughtVariant ? -1 : 1;
+        return compareIdleBagEvictionPriority(a.cur, b.cur);
+      });
+
+    if (bag.length >= IDLE_BAG_SOFT_MAX && replaceable.length) {
+      bag.splice(replaceable[0].index, 1);
       bag.push(mon);
       return bag;
     }
 
-    const replaceable = bag
-      .map((cur, index) => ({ cur, index }))
-      .filter(({ cur }) => canIdleBagMonBeReplaced(cur, mon))
-      .sort((a, b) => compareIdleBagEvictionPriority(a.cur, b.cur));
+    if (bag.length < IDLE_BAG_HARD_MAX) {
+      bag.push(mon);
+      return bag;
+    }
 
     if (!replaceable.length) return bag;
 
@@ -4185,7 +4201,7 @@ bumpDexCaughtFromAny(
         <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catching" onClick={() => setShowIdleCatching(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="modalHeader">
-              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes. Soft cap {IDLE_BAG_SOFT_MAX}, hard cap {IDLE_BAG_HARD_MAX}; at the hard cap, lower-tier older entries are pushed out first.</div></div>
+              <div><div className="modalTitle">Idle Grab Bag</div><div className="modalSub">Adds 1 Pokémon every 4 minutes. Once the bag reaches the soft cap of {IDLE_BAG_SOFT_MAX}, exact Pokédex duplicates are pushed first; the hard cap is {IDLE_BAG_HARD_MAX}.</div></div>
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
             <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_HARD_MAX} (soft cap {IDLE_BAG_SOFT_MAX})</div>
