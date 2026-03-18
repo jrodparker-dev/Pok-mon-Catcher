@@ -231,6 +231,7 @@ export default function App() {
   const suppressPersistOnceRef = useRef(false);
   const saveRef = useRef(null);
   const catchbotTickingRef = useRef(false);
+  const idleTickingRef = useRef(false);
   const miniEndLockRef = useRef(false);
   const miniLastEncounterRef = useRef(false); // true when the current encounter is the last allowed encounter in a mini-run
   const pendingMiniEndReasonRef = useRef(null); // 'Ran out of balls' etc (deferred until after throw outcome renders)
@@ -2491,30 +2492,52 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
 
   useEffect(() => {
     let cancelled = false;
+
     async function tickIdle() {
-      const cur = saveRef.current ?? save;
-      const idle = cur?.idleCatching ?? {};
-      const last = typeof idle?.lastUpdatedAt === 'number' ? idle.lastUpdatedAt : Date.now();
-      const now = Date.now();
-      const elapsed = Math.max(0, now - last);
-      const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
-      if (toAdd <= 0) return;
-      let bag = Array.isArray(idle?.bag) ? idle.bag.slice() : [];
-      for (let i = 0; i < toAdd; i++) {
-        // eslint-disable-next-line no-await-in-loop
-        const m = await generateAutoCatchMon('idle');
-        bag = pushIdleBagMonWithProtection(bag, m);
+      if (idleTickingRef.current) return;
+      idleTickingRef.current = true;
+      try {
+        const cur = saveRef.current ?? save;
+        const idle = cur?.idleCatching ?? {};
+        const last = typeof idle?.lastUpdatedAt === 'number' ? idle.lastUpdatedAt : Date.now();
+        const now = Date.now();
+        const elapsed = Math.max(0, now - last);
+        const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
+        if (toAdd <= 0) return;
+
+        const additions = [];
+        for (let i = 0; i < toAdd; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          const m = await generateAutoCatchMon('idle');
+          additions.push(m);
+        }
+
+        if (cancelled) return;
+
+        const processedLastUpdatedAt = last + toAdd * IDLE_BAG_TICK_MS;
+        setSave((prev) => {
+          const prevIdle = prev?.idleCatching ?? {};
+          const prevLast = typeof prevIdle?.lastUpdatedAt === 'number' ? prevIdle.lastUpdatedAt : last;
+          let nextBag = Array.isArray(prevIdle?.bag) ? prevIdle.bag.slice() : [];
+          additions.forEach((m) => {
+            nextBag = pushIdleBagMonWithProtection(nextBag, m);
+          });
+          return {
+            ...prev,
+            idleCatching: {
+              ...prevIdle,
+              lastUpdatedAt: Math.max(prevLast, processedLastUpdatedAt),
+              bag: nextBag,
+            },
+          };
+        });
+      } catch (e) {
+        if (!cancelled) console.error('Failed to tick idle bag', e);
+      } finally {
+        idleTickingRef.current = false;
       }
-      const nextBag = bag.slice();
-      if (cancelled) return;
-      setSave((prev) => ({
-        ...prev,
-        idleCatching: {
-          lastUpdatedAt: last + toAdd * IDLE_BAG_TICK_MS,
-          bag: nextBag,
-        },
-      }));
     }
+
     tickIdle();
     const id = window.setInterval(
       tickIdle,
@@ -2524,7 +2547,8 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [save?.idleCatching?.lastUpdatedAt, showIdleCatching]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIdleCatching]);
 
 
   function allBallsEmpty(s) {
