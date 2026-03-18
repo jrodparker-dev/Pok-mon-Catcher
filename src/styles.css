@@ -436,6 +436,35 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
   opacity: .9;
   padding: 4px 4px 0 32px;
 }
+.catchbotSummaryIntro{
+  font-size: 13px;
+  opacity: .95;
+  padding: 4px 4px 0 4px;
+}
+.catchbotSummaryGrid{
+  margin-top: 10px;
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.catchbotSummaryCard{
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display:flex;
+  flex-direction:column;
+  gap: 4px;
+}
+.catchbotSummaryCard span{
+  font-size: 12px;
+  opacity: .8;
+  font-weight: 700;
+}
+.catchbotSummaryCard b{
+  font-size: 22px;
+  line-height: 1;
+}
 .settingsActions{
   display:flex;
   gap: 10px;

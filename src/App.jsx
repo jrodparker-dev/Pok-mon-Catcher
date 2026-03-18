@@ -29,6 +29,13 @@ const MIRACLE_CHANCE = 1 / 50000;
 const CATCHBOT_TICK_MS = 5 * 60 * 1000;
 const CATCHBOT_MAX_MS = 24 * 60 * 60 * 1000;
 const IDLE_BAG_MAX = 10;
+const CATCHBOT_SYNC_INTERVAL_MS = 15000;
+const CATCHBOT_BALL_CONFIG = {
+  poke: { intervalMs: 5 * 60 * 1000, rarityBonusPct: 0, label: 'Poké Balls' },
+  great: { intervalMs: 3 * 60 * 1000, rarityBonusPct: 10, label: 'Great Balls' },
+  ultra: { intervalMs: 1 * 60 * 1000, rarityBonusPct: 25, label: 'Ultra Balls' },
+};
+const CATCHBOT_BALL_KEYS = Object.keys(CATCHBOT_BALL_CONFIG);
 
 const TEMPLE_BIOME_KEY = 'temple';
 const TEMPLE_SPAWN_CHANCE_BY_BALL = {
@@ -82,6 +89,80 @@ function getTempleSpawnDenominator(ballKey) {
   const key = String(ballKey || '').toLowerCase();
   if (['poke', 'great', 'ultra', 'master'].includes(key)) return TEMPLE_SPAWN_CHANCE_BY_BALL[key];
   return TEMPLE_SPAWN_CHANCE_BY_BALL.special;
+}
+
+function getCatchbotBallCount(rawCounts = {}) {
+  return CATCHBOT_BALL_KEYS.reduce((sum, key) => (
+    sum + Math.max(0, Math.floor(Number(rawCounts?.[key] ?? 0)))
+  ), 0);
+}
+
+function getCatchbotInsertedByBall(rawCounts = {}, legacyInserted = 0) {
+  const byBall = CATCHBOT_BALL_KEYS.reduce((acc, key) => ({
+    ...acc,
+    [key]: Math.max(0, Math.floor(Number(rawCounts?.[key] ?? 0))),
+  }), {});
+  const legacy = Math.max(0, Math.floor(Number(legacyInserted ?? 0)));
+  if (!getCatchbotBallCount(byBall) && legacy > 0) byBall.poke = legacy;
+  return byBall;
+}
+
+function getCatchbotGeneratedSummary(mons = []) {
+  const summary = {
+    total: 0,
+    common: 0,
+    uncommon: 0,
+    rare: 0,
+    legendary: 0,
+    shiny: 0,
+    golden: 0,
+    miracle: 0,
+    prismatic: 0,
+    delta: 0,
+    superRare: 0,
+  };
+  (Array.isArray(mons) ? mons : []).forEach((mon) => {
+    summary.total += 1;
+    const rarityKey = String(mon?.rarity || 'common').toLowerCase();
+    summary[rarityKey] = (summary[rarityKey] ?? 0) + 1;
+    if (mon?.shiny) summary.shiny += 1;
+    if (mon?.isGolden) summary.golden += 1;
+    if (mon?.isMiracle) summary.miracle += 1;
+    if (mon?.isGolden && mon?.isMiracle) summary.prismatic += 1;
+    if (mon?.isDelta) summary.delta += 1;
+    if (hasSuperRareBuff(mon)) summary.superRare += 1;
+  });
+  return summary;
+}
+
+function isCatchbotDebugInstantCombo(rawCounts = {}) {
+  return CATCHBOT_BALL_KEYS.every((key) => Math.max(0, Math.floor(Number(rawCounts?.[key] ?? 0))) === 66);
+}
+
+function getCatchbotGeneratedCountForType(totalInserted, elapsedMs, ballKey) {
+  const total = Math.max(0, Math.floor(Number(totalInserted ?? 0)));
+  if (total <= 0) return 0;
+  const cfg = CATCHBOT_BALL_CONFIG[String(ballKey || '').toLowerCase()];
+  if (!cfg) return 0;
+  const elapsed = Math.max(0, Number(elapsedMs) || 0);
+  const baseCap = Math.max(1, Math.floor(CATCHBOT_MAX_MS / cfg.intervalMs));
+  const scheduled = Math.min(total, baseCap);
+  const extra = Math.max(0, total - baseCap);
+  const scheduledDone = Math.min(scheduled, Math.floor(elapsed / cfg.intervalMs));
+  const extraDone = extra > 0
+    ? Math.min(extra, Math.floor(elapsed / (CATCHBOT_MAX_MS / extra)))
+    : 0;
+  return Math.min(total, scheduledDone + extraDone);
+}
+
+function getCatchbotCompletionMs(totalInserted, ballKey) {
+  const total = Math.max(0, Math.floor(Number(totalInserted ?? 0)));
+  if (total <= 0) return 0;
+  const cfg = CATCHBOT_BALL_CONFIG[String(ballKey || '').toLowerCase()];
+  if (!cfg) return 0;
+  const baseCap = Math.max(1, Math.floor(CATCHBOT_MAX_MS / cfg.intervalMs));
+  if (total > baseCap) return CATCHBOT_MAX_MS;
+  return total * cfg.intervalMs;
 }
 
 
@@ -140,6 +221,7 @@ export default function App() {
   const mainSaveRef = useRef(null);
   const suppressPersistOnceRef = useRef(false);
   const saveRef = useRef(null);
+  const catchbotTickingRef = useRef(false);
   const miniEndLockRef = useRef(false);
   const miniLastEncounterRef = useRef(false); // true when the current encounter is the last allowed encounter in a mini-run
   const pendingMiniEndReasonRef = useRef(null); // 'Ran out of balls' etc (deferred until after throw outcome renders)
@@ -161,6 +243,23 @@ export default function App() {
           ...((base.catchbot ?? {}).insertedByBall ?? { poke: 0, great: 0, ultra: 0 }),
           ...((loaded.catchbot ?? {}).insertedByBall ?? {}),
         },
+        generated: Array.isArray(loaded?.catchbot?.generated) ? loaded.catchbot.generated.map((m) => {
+          const dexNum = m.dexId ?? m.dexNum ?? m.num ?? (typeof m.id === 'number' ? m.id : undefined);
+          const formId =
+            m.formId ??
+            m.speciesId ??
+            m.dexIdString ??
+            m.dexIdPS ??
+            (typeof m.dexId === 'string' ? m.dexId : null) ??
+            toID(m.name);
+          return {
+            ...m,
+            dexId: typeof dexNum === 'number' ? dexNum : m.dexId,
+            formId: formId,
+            speciesId: m.speciesId ?? formId,
+            isDelta: !!(m.isDelta || m.delta),
+          };
+        }) : ((base?.catchbot ?? {}).generated ?? []),
       },
       idleCatching: {
         ...(base.idleCatching ?? {}),
@@ -248,6 +347,8 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const encounter = save.encounter ?? defaultSave().encounter;
   const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
   const trainer = { ...(defaultSave().trainer ?? {}), ...(save.trainer ?? {}) };
+  const catchbotGenerated = Array.isArray(save?.catchbot?.generated) ? save.catchbot.generated : [];
+  const catchbotGeneratedSummary = useMemo(() => getCatchbotGeneratedSummary(catchbotGenerated), [catchbotGenerated]);
 
   const hasGoldenCharm = !!settings.goldenCharm;
   const hasMiracleCharm = !!settings.miracleCharm;
@@ -619,23 +720,49 @@ function grantDailyGiftIfAvailable() {
 
   function getCatchbotState(curSave = save) {
     const cb = curSave?.catchbot ?? {};
-    const byBall = {
-      poke: Math.max(0, Math.floor(Number(cb?.insertedByBall?.poke ?? 0))),
-      great: Math.max(0, Math.floor(Number(cb?.insertedByBall?.great ?? 0))),
-      ultra: Math.max(0, Math.floor(Number(cb?.insertedByBall?.ultra ?? 0))),
-    };
-    const legacyInserted = Math.max(0, Math.floor(Number(cb.insertedBalls ?? 0)));
-    if (!byBall.poke && !byBall.great && !byBall.ultra && legacyInserted > 0) byBall.poke = legacyInserted;
-    const insertedBalls = byBall.poke + byBall.great + byBall.ultra;
+    const byBall = getCatchbotInsertedByBall(cb?.insertedByBall, cb?.insertedBalls);
+    const insertedBalls = getCatchbotBallCount(byBall);
     const startedAt = typeof cb.startedAt === 'number' ? cb.startedAt : null;
-    const totalMs = Math.min(CATCHBOT_MAX_MS, insertedBalls * CATCHBOT_TICK_MS);
+    const debugInstant = !!cb?.debugInstant;
+    const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+    const generated = Array.isArray(cb?.generated) ? cb.generated : [];
+    const generatedByBall = CATCHBOT_BALL_KEYS.reduce((acc, key) => {
+      acc[key] = generated.reduce((count, mon) => (
+        count + (String(mon?.caughtBall || '').toLowerCase() === key ? 1 : 0)
+      ), 0);
+      return acc;
+    }, {});
+    const expectedByBall = CATCHBOT_BALL_KEYS.reduce((acc, key) => {
+      acc[key] = debugInstant ? byBall[key] : getCatchbotGeneratedCountForType(byBall[key], elapsedMs, key);
+      return acc;
+    }, {});
+    const scheduledMs = CATCHBOT_BALL_KEYS.reduce((maxMs, key) => (
+      Math.max(maxMs, getCatchbotCompletionMs(byBall[key], key))
+    ), 0);
+    const totalMs = debugInstant ? 0 : scheduledMs;
     const readyAt = startedAt ? (startedAt + totalMs) : null;
     const now = Date.now();
     const msLeft = readyAt ? Math.max(0, readyAt - now) : 0;
-    return { insertedBalls, insertedByBall: byBall, startedAt, totalMs, readyAt, msLeft, canClaim: insertedBalls > 0 && msLeft <= 0 };
+    const generatedCount = generated.length;
+    const expectedGenerated = getCatchbotBallCount(expectedByBall);
+    return {
+      insertedBalls,
+      insertedByBall: byBall,
+      startedAt,
+      debugInstant,
+      totalMs,
+      readyAt,
+      msLeft,
+      generated,
+      generatedCount,
+      generatedByBall,
+      expectedByBall,
+      expectedGenerated,
+      canClaim: insertedBalls > 0 && msLeft <= 0 && generatedCount >= insertedBalls,
+    };
   }
 
-  function insertCatchbotBalls() {
+  async function insertCatchbotBalls() {
     const state = getCatchbotState();
     if (state.insertedBalls > 0) return;
     const req = {
@@ -644,6 +771,7 @@ function grantDailyGiftIfAvailable() {
       ultra: Math.max(0, Math.floor(Number(catchbotInsertQty?.ultra ?? 0))),
     };
     const total = req.poke + req.great + req.ultra;
+    const debugInstant = isCatchbotDebugInstantCombo(req);
     if (total <= 0) {
       setMessage('Insert at least 1 Poké/Great/Ultra Ball.');
       return;
@@ -666,9 +794,39 @@ function grantDailyGiftIfAvailable() {
           insertedBalls: total,
           insertedByBall: req,
           startedAt: now,
+          debugInstant,
+          generated: [],
         },
       };
     });
+    setCatchbotClaimPreview(null);
+    if (!debugInstant) return;
+    catchbotTickingRef.current = true;
+    try {
+      const additions = [];
+      for (const key of CATCHBOT_BALL_KEYS) {
+        const pending = req[key] ?? 0;
+        if (pending <= 0) continue;
+        const cfg = CATCHBOT_BALL_CONFIG[key];
+        // eslint-disable-next-line no-await-in-loop
+        const generatedNow = await generateAutoCatchMonsBatch('catchbot', cfg.rarityBonusPct, key, pending);
+        additions.push(...generatedNow);
+      }
+      setSave((prev) => {
+        const prevState = getCatchbotState(prev);
+        if (!prevState.startedAt || !prevState.debugInstant) return prev;
+        return {
+          ...prev,
+          catchbot: {
+            ...(prev?.catchbot ?? {}),
+            generated: [...(prev?.catchbot?.generated ?? []), ...additions],
+          },
+        };
+      });
+      setMessage('Debug Catchbot override triggered: all Pokémon generated instantly.');
+    } finally {
+      catchbotTickingRef.current = false;
+    }
   }
 
   async function generateAutoCatchMon(sourceLabel = 'catchbot', rarityBonusPct = 0, caughtBallKey = 'poke') {
@@ -677,27 +835,27 @@ function grantDailyGiftIfAvailable() {
     return { ...rec, source: sourceLabel };
   }
 
+  async function generateAutoCatchMonsBatch(sourceLabel = 'catchbot', rarityBonusPct = 0, caughtBallKey = 'poke', qty = 0) {
+    const take = Math.max(0, Math.floor(Number(qty ?? 0)));
+    if (take <= 0) return [];
+    const out = [];
+    const batchSize = 8;
+    for (let i = 0; i < take; i += batchSize) {
+      const count = Math.min(batchSize, take - i);
+      // eslint-disable-next-line no-await-in-loop
+      const batch = await Promise.all(
+        Array.from({ length: count }, () => generateAutoCatchMon(sourceLabel, rarityBonusPct, caughtBallKey))
+      );
+      out.push(...batch);
+    }
+    return out;
+  }
+
   async function prepareCatchbotClaim() {
     const state = getCatchbotState();
     if (!state.canClaim) return;
-    const mons = [];
-    for (let i = 0; i < (state?.insertedByBall?.poke ?? 0); i++) {
-      // eslint-disable-next-line no-await-in-loop
-      mons.push(await generateAutoCatchMon('catchbot', 0, 'poke'));
-    }
-    for (let i = 0; i < (state?.insertedByBall?.great ?? 0); i++) {
-      // eslint-disable-next-line no-await-in-loop
-      mons.push(await generateAutoCatchMon('catchbot', 10, 'great'));
-    }
-    for (let i = 0; i < (state?.insertedByBall?.ultra ?? 0); i++) {
-      // eslint-disable-next-line no-await-in-loop
-      mons.push(await generateAutoCatchMon('catchbot', 25, 'ultra'));
-    }
-    const counts = { common: 0, uncommon: 0, rare: 0, legendary: 0 };
-    mons.forEach((m) => {
-      const rk = String(m?.rarity || 'common').toLowerCase();
-      counts[rk] = (counts[rk] ?? 0) + 1;
-    });
+    const mons = state.generated.slice();
+    const counts = getCatchbotGeneratedSummary(mons);
     setCatchbotClaimPreview({ mons, counts, total: mons.length });
   }
 
@@ -711,7 +869,7 @@ function grantDailyGiftIfAvailable() {
     setSave((prev) => ({
       ...prev,
       caught: [...(prev?.caught ?? []), ...keepers],
-      catchbot: { insertedBalls: 0, insertedByBall: { poke: 0, great: 0, ultra: 0 }, startedAt: null },
+      catchbot: { insertedBalls: 0, insertedByBall: { poke: 0, great: 0, ultra: 0 }, startedAt: null, debugInstant: false, generated: [] },
     }));
     setCatchbotClaimPreview(null);
     setShowCatchbot(false);
@@ -2223,6 +2381,79 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
       window.setTimeout(() => spawn(), 50);
     }
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tickCatchbot() {
+      if (catchbotTickingRef.current) return;
+      const cur = saveRef.current ?? save;
+      const state = getCatchbotState(cur);
+      if (!state.startedAt || state.insertedBalls <= 0) return;
+      const pendingByBall = CATCHBOT_BALL_KEYS.reduce((acc, key) => {
+        acc[key] = Math.max(0, (state.expectedByBall?.[key] ?? 0) - (state.generatedByBall?.[key] ?? 0));
+        return acc;
+      }, {});
+      const totalPending = getCatchbotBallCount(pendingByBall);
+      if (totalPending <= 0) return;
+
+      catchbotTickingRef.current = true;
+      try {
+        const additions = [];
+        for (const key of CATCHBOT_BALL_KEYS) {
+          const pending = pendingByBall[key] ?? 0;
+          if (pending <= 0) continue;
+          const cfg = CATCHBOT_BALL_CONFIG[key];
+          // eslint-disable-next-line no-await-in-loop
+          const generated = await generateAutoCatchMonsBatch('catchbot', cfg.rarityBonusPct, key, pending);
+          additions.push(...generated);
+        }
+        if (cancelled || !additions.length) return;
+        setSave((prev) => {
+          const prevState = getCatchbotState(prev);
+          if (!prevState.startedAt || prevState.startedAt !== state.startedAt) return prev;
+          const neededByBall = CATCHBOT_BALL_KEYS.reduce((acc, key) => {
+            acc[key] = Math.max(0, (prevState.expectedByBall?.[key] ?? 0) - (prevState.generatedByBall?.[key] ?? 0));
+            return acc;
+          }, {});
+          const nextAdditions = [];
+          const usedByBall = {};
+          additions.forEach((mon) => {
+            const key = String(mon?.caughtBall || '').toLowerCase();
+            const used = usedByBall[key] ?? 0;
+            if (used >= (neededByBall[key] ?? 0)) return;
+            usedByBall[key] = used + 1;
+            nextAdditions.push(mon);
+          });
+          if (!nextAdditions.length) return prev;
+          return {
+            ...prev,
+            catchbot: {
+              ...(prev?.catchbot ?? {}),
+              generated: [...(prev?.catchbot?.generated ?? []), ...nextAdditions],
+            },
+          };
+        });
+      } finally {
+        catchbotTickingRef.current = false;
+      }
+    }
+
+    tickCatchbot();
+    const id = window.setInterval(tickCatchbot, CATCHBOT_SYNC_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    save?.catchbot?.startedAt,
+    save?.catchbot?.insertedBalls,
+    save?.catchbot?.insertedByBall?.poke,
+    save?.catchbot?.insertedByBall?.great,
+    save?.catchbot?.insertedByBall?.ultra,
+    save?.catchbot?.generated?.length,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3756,29 +3987,58 @@ bumpDexCaughtFromAny(
       {showCatchbot ? (() => {
         const cb = getCatchbotState();
         const minutesLeft = Math.ceil(cb.msLeft / 60000);
+        const hoursLeft = (cb.msLeft / (60 * 60 * 1000)).toFixed(minutesLeft > 180 ? 0 : 1);
+        const summary = catchbotGeneratedSummary;
+        const remaining = Math.max(0, cb.insertedBalls - cb.generatedCount);
         return (
           <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Catchbot" onClick={() => setShowCatchbot(false)}>
             <div className="modalCard" onClick={(e) => e.stopPropagation()}>
               <div className="modalHeader">
-                <div><div className="modalTitle">Catchbot</div><div className="modalSub">1 Poké Ball = 1 guaranteed Pokémon per 5 minutes (max timer 24h)</div></div>
+                <div><div className="modalTitle">Catchbot</div><div className="modalSub">Poké Balls take 5 min, Great Balls 3 min, Ultra Balls 1 min — overflow above each 24h cap is spread evenly across the day.</div></div>
                 <button className="btnGhost" onClick={() => setShowCatchbot(false)} type="button">✕</button>
               </div>
               <div className="settingsHint">Inserted balls: <b>{cb.insertedBalls}</b> (Poké {cb.insertedByBall.poke} • Great {cb.insertedByBall.great} • Ultra {cb.insertedByBall.ultra})</div>
-              <div className="settingsHint">{cb.insertedBalls === 0 ? 'No active catchbot run.' : (cb.canClaim ? 'Ready to claim!' : `${minutesLeft} minutes remaining`)}</div>
+              <div className="settingsHint">
+                {cb.insertedBalls === 0 ? 'No active catchbot run.' : (cb.canClaim ? 'Ready to claim!' : `${minutesLeft} minutes remaining (${hoursLeft}h)`)}
+              </div>
               {cb.insertedBalls === 0 ? (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginTop: 10, alignItems: 'center' }}>
-                    <label>Poké Balls</label>
+                    <label>Poké Balls (1 every 5 min)</label>
                     <input type="number" min={0} value={catchbotInsertQty.poke} onChange={(e) => setCatchbotInsertQty((prev) => ({ ...prev, poke: e.target.value }))} style={{ width: 110 }} />
-                    <label>Great Balls (+10% rarity bonus)</label>
+                    <label>Great Balls (1 every 3 min, +10% rarity bonus)</label>
                     <input type="number" min={0} value={catchbotInsertQty.great} onChange={(e) => setCatchbotInsertQty((prev) => ({ ...prev, great: e.target.value }))} style={{ width: 110 }} />
-                    <label>Ultra Balls (+25% rarity bonus)</label>
+                    <label>Ultra Balls (1 every 1 min, +25% rarity bonus)</label>
                     <input type="number" min={0} value={catchbotInsertQty.ultra} onChange={(e) => setCatchbotInsertQty((prev) => ({ ...prev, ultra: e.target.value }))} style={{ width: 110 }} />
                   </div>
                   <button className="btnSmall" style={{ marginTop: 10 }} type="button" onClick={insertCatchbotBalls}>Start Catchbot</button>
                 </>
               ) : null}
               <div className="settingsHint">Available — Poké: {save?.balls?.poke ?? 0} • Great: {save?.balls?.great ?? 0} • Ultra: {save?.balls?.ultra ?? 0}</div>
+              {cb.insertedBalls > 0 ? (
+                <div className="settingsGroup" style={{ marginTop: 12 }}>
+                  <div className="settingsHeading">Catchbot Progress</div>
+                  <div className="catchbotSummaryIntro">
+                    <b>{cb.generatedCount}</b> / {cb.insertedBalls} generated • <b>{remaining}</b> remaining
+                  </div>
+                  <div className="catchbotSummaryIntro">
+                    By ball — Poké {cb.generatedByBall.poke ?? 0}/{cb.insertedByBall.poke} • Great {cb.generatedByBall.great ?? 0}/{cb.insertedByBall.great} • Ultra {cb.generatedByBall.ultra ?? 0}/{cb.insertedByBall.ultra}
+                  </div>
+                  <div className="catchbotSummaryGrid">
+                    <div className="catchbotSummaryCard"><span>Total</span><b>{summary.total}</b></div>
+                    <div className="catchbotSummaryCard"><span>Legendary</span><b>{summary.legendary}</b></div>
+                    <div className="catchbotSummaryCard"><span>Rare</span><b>{summary.rare}</b></div>
+                    <div className="catchbotSummaryCard"><span>Uncommon</span><b>{summary.uncommon}</b></div>
+                    <div className="catchbotSummaryCard"><span>Common</span><b>{summary.common}</b></div>
+                    <div className="catchbotSummaryCard"><span>Shiny</span><b>{summary.shiny}</b></div>
+                    <div className="catchbotSummaryCard"><span>Golden</span><b>{summary.golden}</b></div>
+                    <div className="catchbotSummaryCard"><span>Miracle</span><b>{summary.miracle}</b></div>
+                    <div className="catchbotSummaryCard"><span>Prismatic</span><b>{summary.prismatic}</b></div>
+                    <div className="catchbotSummaryCard"><span>Delta</span><b>{summary.delta}</b></div>
+                    <div className="catchbotSummaryCard"><span>Super Rare</span><b>{summary.superRare}</b></div>
+                  </div>
+                </div>
+              ) : null}
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <button className="btnSmall" disabled={!cb.canClaim} type="button" onClick={prepareCatchbotClaim}>Claim</button>
               </div>
