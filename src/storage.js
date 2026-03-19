@@ -55,7 +55,7 @@ export function saveMiniSummaries(arr) {
 
 export function addMiniSummary(summary, maxKeep = 3) {
   const prev = loadMiniSummaries();
-  const next = [summary, ...prev].slice(0, Math.max(1, maxKeep));
+  const next = [summary, ...prev.filter((item) => item?.id !== summary?.id)].slice(0, Math.max(1, maxKeep));
   saveMiniSummaries(next);
   return next;
 }

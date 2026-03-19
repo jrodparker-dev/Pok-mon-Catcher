@@ -9,7 +9,7 @@ function capName(name) {
     .join(' ');
 }
 
-export default function MiniRunSummaryModal({ open, onClose, summary, onSelectMon, onDeleteRun }) {
+export default function MiniRunSummaryModal({ open, onClose, summary, onSelectMon, onDeleteRun, onEditRun }) {
   if (!open) return null;
   if (!summary) return null;
 
@@ -57,7 +57,10 @@ export default function MiniRunSummaryModal({ open, onClose, summary, onSelectMo
         </div>
 
         <div className="modalFooter" style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-          <button className="btnSmall" onClick={() => onDeleteRun?.(summary)} type="button">Delete Run</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btnSmall" onClick={() => onDeleteRun?.(summary)} type="button">Delete Run</button>
+            <button className="btnSmall" onClick={() => onEditRun?.(summary)} type="button">Edit Pokémon</button>
+          </div>
           <button className="pcButton" onClick={onClose} type="button">Close</button>
         </div>
       </div>
