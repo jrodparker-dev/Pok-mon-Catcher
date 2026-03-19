@@ -473,6 +473,8 @@ const fullDexList = useMemo(() => getAllBaseDexEntries(), []);
   const encounter = save.encounter ?? defaultSave().encounter;
   const settings = { ...(defaultSave().settings ?? {}), ...(save.settings ?? {}) };
   const trainer = { ...(defaultSave().trainer ?? {}), ...(save.trainer ?? {}) };
+  const isMiniGameOver = mode === 'mini' && !!save?.miniRun?.gameOver;
+  const isFinishedRunView = isMiniGameOver || mode === 'runview';
   const catchbotGenerated = Array.isArray(save?.catchbot?.generated) ? save.catchbot.generated : [];
   const catchbotGeneratedSummary = useMemo(() => getCatchbotGeneratedSummary(catchbotGenerated), [catchbotGenerated]);
 
@@ -1929,8 +1931,14 @@ function setLockManyPokemon(uids, locked) {
       // Persist edits back into the saved run snapshot(s)
       if (runViewId) {
         setRunSummaries((prev) => {
-          const next = (prev || []).map((s) => (s?.id === runViewId ? { ...s, saveSnapshot: save, caught: save?.caught ?? s?.caught ?? [] } : s));
+          const next = (prev || []).map((s) => (s?.id === runViewId ? {
+            ...s,
+            saveSnapshot: save,
+            caught: save?.caught ?? s?.caught ?? [],
+            counts: { ...(s?.counts ?? {}), caught: (save?.caught ?? s?.caught ?? []).length },
+          } : s));
           saveMiniSummaries(next);
+          setOpenSummary((cur) => cur?.id === runViewId ? (next.find((s) => s?.id === runViewId) ?? cur) : cur);
           return next;
         });
       }
@@ -2703,54 +2711,76 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     setMiniLastEncounter(false);
   }
 
+  function buildMiniRunSummary(runSave, reasonOverride = null) {
+    const miniRun = runSave?.miniRun;
+    if (!miniRun?.id) return null;
+    const reason = reasonOverride ?? miniRun.endReason ?? 'Game Over';
+    return {
+      id: miniRun.id,
+      createdAt: miniRun.createdAt,
+      endedAt: miniRun.endedAt ?? Date.now(),
+      reason,
+      capsInitial: miniRun.capsInitial,
+      ballsInitial: miniRun.ballsInitial,
+      caught: runSave?.caught ?? [],
+      counts: { caught: (runSave?.caught ?? []).length },
+      saveSnapshot: runSave,
+    };
+  }
+
   function endMiniRun(reason = 'Game Over') {
-  if (miniEndLockRef.current) return;
-  const cur = saveRef.current;
-  if (!cur?.miniRun || cur.miniRun.gameOver) return;
+    const cur = saveRef.current;
+    if (!cur?.miniRun || cur.miniRun.gameOver) return;
 
-  miniEndLockRef.current = true;
-  const endedAt = Date.now();
+    const endedAt = Date.now();
+    setSave((prev) => {
+      if (!prev?.miniRun || prev.miniRun.gameOver) return prev;
+      return {
+        ...prev,
+        miniRun: {
+          ...prev.miniRun,
+          gameOver: true,
+          endedAt,
+          endReason: reason,
+        },
+      };
+    });
+    miniEndLockRef.current = true;
+    resetSoftState();
+    setShowMiniInfo(false);
+  }
 
-  const endedSave = {
-    ...cur,
-    miniRun: {
-      ...cur.miniRun,
-      gameOver: true,
-      endedAt,
-      endReason: reason,
-    },
-  };
+  function finalizeMiniRun() {
+    const cur = saveRef.current;
+    if (!cur?.miniRun?.gameOver) return;
 
-  const summary = {
-    id: cur.miniRun.id,
-    createdAt: cur.miniRun.createdAt,
-    endedAt,
-    reason,
-    capsInitial: cur.miniRun.capsInitial,
-    ballsInitial: cur.miniRun.ballsInitial,
-    caught: endedSave.caught ?? [],
-    counts: { caught: (endedSave.caught ?? []).length },
-    // full snapshot so we can view/edit (evolve, move tokens) later from Run Saves
-    saveSnapshot: endedSave,
-  };
+    const endedSave = {
+      ...cur,
+      miniRun: {
+        ...cur.miniRun,
+        endedAt: cur.miniRun.endedAt ?? Date.now(),
+      },
+    };
+    const summary = buildMiniRunSummary(endedSave);
+    if (!summary) return;
 
-  const next = addMiniSummary(summary, 3);
-  setRunSummaries(next);
+    const next = addMiniSummary(summary, 3);
+    setRunSummaries(next);
 
-  // Once ended, treat it as a saved snapshot (not resumable as an active run).
-  clearActiveMiniRun();
-  setHasActiveMini(false);
+    clearActiveMiniRun();
+    setHasActiveMini(false);
+    setOpenSummary(summary);
+    setSummaryDetail(null);
+    setRunViewId(null);
 
-  // Return player to main save immediately.
-  suppressPersistOnceRef.current = true;
-  setMode('main');
-  // Always reload main from storage (source of truth), then reconcile pokedex for profile.
-  const mainLoaded = hydrateSave(loadSave()) ?? mainSaveRef.current ?? defaultSave();
-  const main = reconcilePokedexForProfile(mainLoaded);
-  setSave(main);
-
-  setOpenSummary(summary);
-}
+    suppressPersistOnceRef.current = true;
+    setMode('main');
+    const mainLoaded = hydrateSave(loadSave()) ?? mainSaveRef.current ?? defaultSave();
+    const main = reconcilePokedexForProfile(mainLoaded);
+    mainSaveRef.current = null;
+    setSave(main);
+    resetSoftState();
+  }
 
   function startMiniRun(config) {
     if (mode !== 'mini') mainSaveRef.current = save;
@@ -2775,7 +2805,9 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     setMode('mini');
     setSave(hydrateSave(loaded));
     resetSoftState();
-    window.setTimeout(() => spawn(), 50);
+    if (!(loaded?.miniRun?.gameOver)) {
+      window.setTimeout(() => spawn(), 50);
+    }
   }
 
 
@@ -2789,6 +2821,8 @@ function viewSavedRun(summary) {
   setRunViewId(summary.id);
   setSave(hydrateSave(summary.saveSnapshot));
   resetSoftState();
+  setOpenSummary(null);
+  setSummaryDetail(null);
   setShowPC(true);
 }
 
@@ -2817,7 +2851,12 @@ function viewSavedRun(summary) {
         return { ...m, moves };
       });
 
-      return { ...sum, saveSnapshot: { ...snap, moveTokens: Math.max(0, tokens - 1), caught: nextCaught } };
+      return {
+        ...sum,
+        caught: nextCaught,
+        counts: { ...(sum?.counts ?? {}), caught: nextCaught.length },
+        saveSnapshot: { ...snap, moveTokens: Math.max(0, tokens - 1), caught: nextCaught },
+      };
     });
   }
 
@@ -2879,14 +2918,20 @@ function viewSavedRun(summary) {
       const i = nextCaught.findIndex(m => m.uid === uidToEvolve);
       if (i < 0) return s;
       nextCaught[i] = evolvedRecord;
-      return { ...s, saveSnapshot: { ...snap2, caught: nextCaught } };
+      return {
+        ...s,
+        caught: nextCaught,
+        counts: { ...(s?.counts ?? {}), caught: nextCaught.length },
+        saveSnapshot: { ...snap2, caught: nextCaught },
+      };
     });
   }
 
   function returnToMain() {
-    if (mode !== 'mini') return;
+    if (mode !== 'mini' && mode !== 'runview') return;
     suppressPersistOnceRef.current = true;
     setMode('main');
+    setRunViewId(null);
     const mainLoaded = hydrateSave(loadSave()) ?? mainSaveRef.current ?? defaultSave();
     const main = reconcilePokedexForProfile(mainLoaded);
     mainSaveRef.current = null;
@@ -3686,18 +3731,20 @@ bumpDexCaughtFromAny(
 <button className="btnSmall topEmojiBtn" onClick={() => setShowCatchbot(true)} title="Catchbot" aria-label="Catchbot" type="button">🤖</button>
 <button className="btnSmall topEmojiBtn" onClick={() => setShowIdleCatching(true)} title="Idle Catching" aria-label="Idle Catching" type="button">👜</button>
 
-          {mode === 'mini' ? (
-            <>
-              <button
-                className="runBadge topEmojiBtn"
-                title="Mini run info"
-                type="button"
-                onClick={() => setShowMiniInfo(true)}
-              >
-                🎮 Mini Run
-              </button>
+        {mode === 'mini' || mode === 'runview' ? (
+          <>
+            <button
+              className="runBadge topEmojiBtn"
+              title={mode === 'mini' ? 'Mini run info' : 'Viewing saved mini run'}
+              type="button"
+              onClick={() => {
+                if (mode === 'mini') setShowMiniInfo(true);
+              }}
+            >
+              {mode === 'mini' ? '🎮 Mini Run' : '🎮 Saved Run'}
+            </button>
               <button className="btnSmall topEmojiBtn" onClick={returnToMain} title="Return to main save" type="button">🏠</button>
-            </>
+          </>
           ) : (
             <>
               <button
@@ -3785,14 +3832,16 @@ bumpDexCaughtFromAny(
         <button className="btnSmall railBtn" onClick={() => setShowDex(true)} title="Pokédex" aria-label="Pokédex" type="button">📘</button>
 
         {/* Mini-run controls mirror desktop behavior on mobile */}
-        {mode === 'mini' ? (
+        {mode === 'mini' || mode === 'runview' ? (
           <>
             <button
               className="btnSmall railBtn railActive"
-              title="Mini run info"
-              aria-label="Mini run info"
+              title={mode === 'mini' ? 'Mini run info' : 'Viewing saved mini run'}
+              aria-label={mode === 'mini' ? 'Mini run info' : 'Viewing saved mini run'}
               type="button"
-              onClick={() => setShowMiniInfo(true)}
+              onClick={() => {
+                if (mode === 'mini') setShowMiniInfo(true);
+              }}
             >
               🎮
             </button>
@@ -3818,7 +3867,47 @@ bumpDexCaughtFromAny(
 
 
       <main className="stage">
-        {stage === 'idle' || stage === 'loading' ? (
+        {isFinishedRunView ? (
+          <div className="encounter">
+            <div className="gameOverCard">
+              <div className="gameOverBadge">Game Over</div>
+              <div className="gameOverTitle">
+                {mode === 'runview' ? 'Finished Mini Run' : 'This mini run has ended.'}
+              </div>
+              <div className="gameOverText">
+                {mode === 'runview'
+                  ? 'You can still open your PC, edit moves, fuse Pokémon, and make any final cleanup before jumping back to the saved summary.'
+                  : 'You can still open your PC, edit moves, release Pokémon for tokens, fuse Pokémon, and make any final cleanup before generating the summary.'}
+              </div>
+
+              <div className="runCapsRow" style={{ justifyContent: 'center' }}>
+                {save?.miniRun?.endReason ? <div className="runCapPill">{save.miniRun.endReason}</div> : null}
+                <div className="runCapPill">Caught: {(save?.caught ?? []).length}</div>
+                <div className="runCapPill">Move Tokens: {save?.moveTokens ?? 0}</div>
+                <div className="runCapPill">Fusion Tokens: {save?.fusionTokens ?? 0}</div>
+              </div>
+
+              <div className="actionsRow">
+                <button className="btnGhost" onClick={() => setShowPC(true)} type="button">Open PC</button>
+                {mode === 'runview' ? (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      const latest = (runSummaries || []).find((s) => s?.id === runViewId);
+                      setOpenSummary(latest ?? buildMiniRunSummary(save));
+                      setSummaryDetail(null);
+                    }}
+                    type="button"
+                  >
+                    End Run and Generate Summary
+                  </button>
+                ) : (
+                  <button className="btn" onClick={finalizeMiniRun} type="button">End Run and Generate Summary</button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : stage === 'idle' || stage === 'loading' ? (
           <button
             className={`bigBall ${stage === 'loading' ? 'disabled' : ''}`}
             onClick={spawn}
@@ -4313,6 +4402,10 @@ bumpDexCaughtFromAny(
         open={showRunSummaries}
         onClose={() => setShowRunSummaries(false)}
         summaries={runSummaries}
+        onEditRun={(s) => {
+          setShowRunSummaries(false);
+          viewSavedRun(s);
+        }}
         onOpenSummary={(s) => {
           setShowRunSummaries(false);
           setOpenSummary(s);
@@ -4335,6 +4428,7 @@ bumpDexCaughtFromAny(
           setSummaryDetail(null);
         }}
         summary={openSummary}
+        onEditRun={(s) => viewSavedRun(s)}
         onSelectMon={(m, idx) => setSummaryDetail({ summaryId: openSummary?.id, uid: m?.uid, index: idx })}
       />
 

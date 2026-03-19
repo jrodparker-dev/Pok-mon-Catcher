@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function MiniRunSummariesModal({ open, onClose, summaries, onOpenSummary }) {
+export default function MiniRunSummariesModal({ open, onClose, summaries, onOpenSummary, onEditRun }) {
   if (!open) return null;
 
   return (
@@ -19,12 +19,10 @@ export default function MiniRunSummariesModal({ open, onClose, summaries, onOpen
         ) : (
           <div className="achList" style={{ marginTop: 10 }}>
             {summaries.map((s) => (
-              <button
+              <div
                 key={s.id}
-                type="button"
                 className="achRow"
-                onClick={() => onOpenSummary(s)}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
               >
                 <div className="achLeft">
                   <div className="achName">Run {new Date(s.createdAt).toLocaleString()}</div>
@@ -32,8 +30,11 @@ export default function MiniRunSummariesModal({ open, onClose, summaries, onOpen
                     {s.counts?.caught ?? (s.caught?.length ?? 0)} caught • {s.reason || 'Game Over'}
                   </div>
                 </div>
-                <div className="achRight">➡️</div>
-              </button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className="btnSmall" type="button" onClick={() => onEditRun?.(s)}>Edit Pokémon</button>
+                  <button className="btnSmall" type="button" onClick={() => onOpenSummary(s)}>Open Summary</button>
+                </div>
+              </div>
             ))}
           </div>
         )}
