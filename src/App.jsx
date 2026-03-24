@@ -32,7 +32,6 @@ const IDLE_BAG_SOFT_MAX = 10;
 const IDLE_BAG_HARD_MAX = 50;
 const CATCHBOT_SYNC_INTERVAL_MS = 15000;
 const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
-const IDLE_BAG_OPEN_SYNC_INTERVAL_MS = 1000;
 // Idle Grab Bag tick rate. Change this single constant to rebalance the system.
 const IDLE_BAG_TICK_MS = 4 * 60 * 1000;
 // Example presets:
@@ -71,6 +70,18 @@ function capName(name) {
     .split('-')
     .map(s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s))
     .join(' ');
+}
+
+function formatDurationLong(ms = 0) {
+  const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? '' : 's'}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes === 1 ? '' : 's'}`);
+  if (hours <= 0 && seconds > 0) parts.push(`${seconds} second${seconds === 1 ? '' : 's'}`);
+  return parts.join(', ') || '0 minutes';
 }
 
 function formatSpawnName(mon) {
@@ -445,6 +456,8 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showCatchbot, setShowCatchbot] = useState(false);
   const [showIdleCatching, setShowIdleCatching] = useState(false);
+  const [idleCatchupPrompt, setIdleCatchupPrompt] = useState(null); // { elapsedMs, toGenerate, resumedAt }
+  const [idleCatchupProgress, setIdleCatchupProgress] = useState({ running: false, total: 0, done: 0 });
   const [catchbotInsertQty, setCatchbotInsertQty] = useState({ poke: 1, great: 0, ultra: 0 });
   const [catchbotClaimPreview, setCatchbotClaimPreview] = useState(null);
   const [catchbotKeepByRarity, setCatchbotKeepByRarity] = useState({ common: false, uncommon: false, rare: true, legendary: true });
@@ -2633,64 +2646,112 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
   ]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function tickIdle() {
-      if (idleTickingRef.current) return;
-      idleTickingRef.current = true;
-      try {
-        const cur = saveRef.current ?? save;
-        const idle = cur?.idleCatching ?? {};
-        const last = typeof idle?.lastUpdatedAt === 'number' ? idle.lastUpdatedAt : Date.now();
-        const now = Date.now();
-        const elapsed = Math.max(0, now - last);
-        const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
-        if (toAdd <= 0) return;
-
-        const additions = [];
-        for (let i = 0; i < toAdd; i++) {
-          // eslint-disable-next-line no-await-in-loop
-          const m = await generateAutoCatchMon('idle');
-          additions.push(m);
-        }
-
-        if (cancelled) return;
-
-        const processedLastUpdatedAt = last + toAdd * IDLE_BAG_TICK_MS;
-        setSave((prev) => {
-          const prevIdle = prev?.idleCatching ?? {};
-          const prevLast = typeof prevIdle?.lastUpdatedAt === 'number' ? prevIdle.lastUpdatedAt : last;
-          let nextBag = Array.isArray(prevIdle?.bag) ? prevIdle.bag.slice() : [];
-          additions.forEach((m) => {
-            nextBag = pushIdleBagMonWithProtection(nextBag, m);
-          });
-          return {
-            ...prev,
-            idleCatching: {
-              ...prevIdle,
-              lastUpdatedAt: Math.max(prevLast, processedLastUpdatedAt),
-              bag: nextBag,
-            },
-          };
-        });
-      } catch (e) {
-        if (!cancelled) console.error('Failed to tick idle bag', e);
-      } finally {
-        idleTickingRef.current = false;
-      }
+    function markIdleHeartbeat() {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      setSave((prev) => {
+        const prevIdle = prev?.idleCatching ?? {};
+        const prevLast = typeof prevIdle?.lastUpdatedAt === 'number' ? prevIdle.lastUpdatedAt : 0;
+        if (prevLast >= now - 1000) return prev;
+        return {
+          ...prev,
+          idleCatching: {
+            ...prevIdle,
+            lastUpdatedAt: now,
+          },
+        };
+      });
     }
 
-    tickIdle();
-    const id = window.setInterval(
-      tickIdle,
-      showIdleCatching ? IDLE_BAG_OPEN_SYNC_INTERVAL_MS : IDLE_BAG_SYNC_INTERVAL_MS
-    );
+    function markAwayTimestamp() {
+      const now = Date.now();
+      setSave((prev) => {
+        const prevIdle = prev?.idleCatching ?? {};
+        return {
+          ...prev,
+          idleCatching: {
+            ...prevIdle,
+            lastUpdatedAt: now,
+          },
+        };
+      });
+    }
+
+    function queueIdleCatchupPrompt() {
+      const cur = saveRef.current ?? save;
+      const idle = cur?.idleCatching ?? {};
+      const last = typeof idle?.lastUpdatedAt === 'number' ? idle.lastUpdatedAt : Date.now();
+      const resumedAt = Date.now();
+      const elapsed = Math.max(0, resumedAt - last);
+      const toAdd = Math.floor(elapsed / IDLE_BAG_TICK_MS);
+      if (toAdd <= 0) {
+        markIdleHeartbeat();
+        return;
+      }
+      setIdleCatchupPrompt((prev) => {
+        if (prev?.toGenerate === toAdd && prev?.resumedAt === resumedAt) return prev;
+        return { elapsedMs: elapsed, toGenerate: toAdd, resumedAt };
+      });
+    }
+
+    markIdleHeartbeat();
+    queueIdleCatchupPrompt();
+    const heartbeatId = window.setInterval(markIdleHeartbeat, IDLE_BAG_SYNC_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') markAwayTimestamp();
+      if (document.visibilityState === 'visible') queueIdleCatchupPrompt();
+    };
+    window.addEventListener('focus', queueIdleCatchupPrompt);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', markAwayTimestamp);
     return () => {
-      cancelled = true;
-      window.clearInterval(id);
+      window.clearInterval(heartbeatId);
+      window.removeEventListener('focus', queueIdleCatchupPrompt);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', markAwayTimestamp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showIdleCatching]);
+  }, []);
+
+  async function runIdleCatchupGeneration() {
+    if (idleTickingRef.current) return;
+    const prompt = idleCatchupPrompt;
+    const total = Math.max(0, Number(prompt?.toGenerate) || 0);
+    if (total <= 0) return;
+    idleTickingRef.current = true;
+    setIdleCatchupProgress({ running: true, total, done: 0 });
+    try {
+      const additions = [];
+      for (let i = 0; i < total; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const mon = await generateAutoCatchMon('idle');
+        additions.push(mon);
+        const done = i + 1;
+        setIdleCatchupProgress({ running: true, total, done });
+      }
+      setSave((prev) => {
+        const prevIdle = prev?.idleCatching ?? {};
+        let nextBag = Array.isArray(prevIdle?.bag) ? prevIdle.bag.slice() : [];
+        additions.forEach((m) => {
+          nextBag = pushIdleBagMonWithProtection(nextBag, m);
+        });
+        return {
+          ...prev,
+          idleCatching: {
+            ...prevIdle,
+            lastUpdatedAt: Date.now(),
+            bag: nextBag,
+          },
+        };
+      });
+      setIdleCatchupPrompt(null);
+    } catch (e) {
+      console.error('Failed to generate idle catchup mons', e);
+    } finally {
+      setIdleCatchupProgress((prev) => ({ ...prev, running: false }));
+      idleTickingRef.current = false;
+    }
+  }
 
 
   function allBallsEmpty(s) {
@@ -4372,6 +4433,42 @@ bumpDexCaughtFromAny(
                 </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {idleCatchupPrompt ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Idle Catchup" onClick={() => {
+          if (!idleCatchupProgress.running) setIdleCatchupPrompt(null);
+        }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="modalHeader">
+              <div>
+                <div className="modalTitle">Idle Grab Bag Catch-up</div>
+                <div className="modalSub">
+                  {formatDurationLong(idleCatchupPrompt.elapsedMs)} elapsed, accumulating <b>{idleCatchupPrompt.toGenerate}</b> Pokémon.
+                </div>
+              </div>
+              <button className="btnGhost" type="button" disabled={idleCatchupProgress.running} onClick={() => setIdleCatchupPrompt(null)}>✕</button>
+            </div>
+            <div className="settingsGroup">
+              {!idleCatchupProgress.running ? (
+                <>
+                  <div className="settingsHint">Generate these now and add them to your Idle Grab Bag?</div>
+                  <button className="btnSmall" type="button" onClick={runIdleCatchupGeneration}>Generate</button>
+                </>
+              ) : (
+                <>
+                  <div className="settingsHint">Generating {idleCatchupProgress.done} / {idleCatchupProgress.total}…</div>
+                  <div className="progressBarOuter" aria-label="Idle catch-up generation progress">
+                    <div
+                      className="progressBarInner"
+                      style={{ width: `${Math.round((idleCatchupProgress.done / Math.max(1, idleCatchupProgress.total)) * 100)}%` }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
