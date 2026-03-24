@@ -35,7 +35,7 @@ const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
 // Idle Grab Bag tick rate. Change this single constant to rebalance the system.
 const IDLE_BAG_TICK_MS = 4 * 60 * 1000;
 const IDLE_CATCHUP_MAX_BATCH_QTY = 500;
-const IDLE_DEBUG_FAST_FORWARD_QTY = 2000;
+//const IDLE_DEBUG_FAST_FORWARD_QTY = 2000;
 // Example presets:
 // const IDLE_BAG_TICK_MS = 10 * 60 * 1000; // 10 minutes
 // const IDLE_BAG_TICK_MS = 5 * 60 * 1000;  // 5 minutes
@@ -4503,15 +4503,6 @@ bumpDexCaughtFromAny(
               <button className="btnGhost" onClick={() => setShowIdleCatching(false)} type="button">✕</button>
             </div>
             <div className="settingsHint">Stored: <b>{save?.idleCatching?.bag?.length ?? 0}</b> / {IDLE_BAG_HARD_MAX} (soft cap {IDLE_BAG_SOFT_MAX})</div>
-            <div style={{ display: 'flex', gap: 8, margin: '8px 0 4px' }}>
-              <button
-                className="btnSmall"
-                type="button"
-                onClick={() => setIdleCatchupPrompt({ elapsedMs: IDLE_DEBUG_FAST_FORWARD_QTY * IDLE_BAG_TICK_MS, toGenerate: IDLE_DEBUG_FAST_FORWARD_QTY, resumedAt: Date.now() })}
-              >
-                Debug: +{IDLE_DEBUG_FAST_FORWARD_QTY}
-              </button>
-            </div>
             <div className="idleBagGrid">
               {sortIdleBagForDisplay(save?.idleCatching?.bag ?? []).map((m) => {
                 const newness = getMonNewness(m);
