@@ -34,6 +34,7 @@ const CATCHBOT_SYNC_INTERVAL_MS = 15000;
 const IDLE_BAG_SYNC_INTERVAL_MS = 30000;
 // Idle Grab Bag tick rate. Change this single constant to rebalance the system.
 const IDLE_BAG_TICK_MS = 4 * 60 * 1000;
+const IDLE_CATCHUP_MAX_BATCH_QTY = 160;
 // Example presets:
 // const IDLE_BAG_TICK_MS = 10 * 60 * 1000; // 10 minutes
 // const IDLE_BAG_TICK_MS = 5 * 60 * 1000;  // 5 minutes
@@ -2722,12 +2723,12 @@ function bumpDexCaughtFromAny(anyIdOrNum, isShiny, isDelta, rarityKey, buffCount
     setIdleCatchupProgress({ running: true, total, done: 0 });
     try {
       const additions = [];
-      for (let i = 0; i < total; i++) {
+      for (let done = 0; done < total; done += IDLE_CATCHUP_MAX_BATCH_QTY) {
+        const qty = Math.min(IDLE_CATCHUP_MAX_BATCH_QTY, total - done);
         // eslint-disable-next-line no-await-in-loop
-        const mon = await generateAutoCatchMon('idle');
-        additions.push(mon);
-        const done = i + 1;
-        setIdleCatchupProgress({ running: true, total, done });
+        const batch = await generateAutoCatchMonsBatch('idle', 0, 'poke', qty);
+        additions.push(...batch);
+        setIdleCatchupProgress({ running: true, total, done: Math.min(total, done + qty) });
       }
       setSave((prev) => {
         const prevIdle = prev?.idleCatching ?? {};
