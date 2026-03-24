@@ -1054,11 +1054,14 @@ function grantDailyGiftIfAvailable() {
     try {
       const dexLookupId = mon?.formId ?? mon?.speciesId ?? mon?.name;
       const bundle = await fetchPokemonBundleByDexId(dexLookupId);
+      const rarityKey = mon?.rarity ?? 'common';
+      const rarityBuffs = rollBuffs(rarityKey, bundle);
+      const carriedBuffs = Array.isArray(mon?.buffs) ? mon.buffs : [];
       const pseudoWild = {
         ...bundle,
-        rarity: mon?.rarity ?? 'common',
-        badge: mon?.badge ?? (RARITIES.find((r) => r.key === mon?.rarity)?.badge) ?? null,
-        buffs: Array.isArray(mon?.buffs) ? mon.buffs : [],
+        rarity: rarityKey,
+        badge: mon?.badge ?? (RARITIES.find((r) => r.key === rarityKey)?.badge) ?? null,
+        buffs: [...rarityBuffs, ...carriedBuffs],
         shiny: !!mon?.shiny,
         isDelta: !!mon?.isDelta,
         isGolden: !!mon?.isGolden,
