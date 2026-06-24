@@ -2252,3 +2252,105 @@ body { background: radial-gradient(1000px 600px at 50% -100px, #1f2937, var(--bg
 .idleBagSub{ font-size:11px; opacity:.8; }
 
 .profileCharmRow{ margin-top:4px; display:flex; gap:8px; font-size:16px; align-items:center; }
+
+/* Polished controls and custom SVG icon navigation */
+button, .btn, .btnGhost, .btnSmall, .pcButton, .ballBtn, .summaryTileBtn, .dexTile{
+  transition: transform .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, filter .16s ease, opacity .16s ease;
+}
+button:not(:disabled):hover, .btn:not(:disabled):hover, .btnGhost:not(:disabled):hover, .btnSmall:not(:disabled):hover, .pcButton:not(:disabled):hover, .ballBtn:not(:disabled):hover, .summaryTileBtn:not(:disabled):hover, .dexTile:not(:disabled):hover{
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, .48);
+  box-shadow: 0 10px 24px rgba(0,0,0,.22), 0 0 0 1px rgba(125,211,252,.12) inset;
+  filter: brightness(1.08);
+}
+button:not(:disabled):active, .btn:not(:disabled):active, .btnGhost:not(:disabled):active, .btnSmall:not(:disabled):active, .pcButton:not(:disabled):active, .ballBtn:not(:disabled):active{
+  transform: translateY(0) scale(.98);
+}
+button:disabled{ cursor:not-allowed; opacity:.58; }
+
+.appIcon{
+  width:20px;
+  height:20px;
+  display:block;
+  color: currentColor;
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,.22));
+}
+.iconOnlyBtn, .iconMenuBtn{
+  min-width:42px;
+  min-height:38px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+}
+.iconOnlyBtn{
+  color:#bfdbfe;
+  background: linear-gradient(135deg, rgba(59,130,246,.18), rgba(168,85,247,.12));
+}
+.iconMenuBtn{
+  color:#dbeafe;
+  background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(96,165,250,.10));
+}
+.menuCaret{ font-size:12px; opacity:.78; margin-left:-1px; }
+.topMenu{ position:relative; display:inline-flex; }
+.topDropdown{
+  position:absolute;
+  top:calc(100% + 8px);
+  right:auto;
+  left:0;
+  min-width:220px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:8px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:16px;
+  background: rgba(11,18,32,.96);
+  box-shadow: 0 18px 45px rgba(0,0,0,.36);
+  backdrop-filter: blur(12px);
+  opacity:0;
+  visibility:hidden;
+  transform: translateY(-6px) scale(.98);
+  pointer-events:none;
+  z-index:120;
+}
+.topDropdownRight{ left:auto; right:0; min-width:170px; }
+.topMenu:hover .topDropdown, .topMenu:focus-within .topDropdown{
+  opacity:1;
+  visibility:visible;
+  transform: translateY(0) scale(1);
+  pointer-events:auto;
+}
+.dropdownItem{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  padding:10px 11px;
+  border-radius:12px;
+  border:1px solid transparent;
+  color:var(--text);
+  background:transparent;
+  text-align:left;
+  font-weight:800;
+  cursor:pointer;
+}
+.dropdownItem:hover{
+  background: rgba(96,165,250,.14);
+  border-color: rgba(147,197,253,.24);
+}
+.dropdownGlyph{
+  width:20px;
+  height:20px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:1000;
+  color:#bfdbfe;
+}
+.pcIconSvg{
+  width:20px;
+  height:20px;
+  color:#7dd3fc;
+}
+.railBtn .appIcon, .railIcon .appIcon{ width:21px; height:21px; }
