@@ -66,6 +66,34 @@ import { rollDeltaTypes } from './typePool.js';
 import { pickUnique, uid } from './utils.js';
 import { applyCatchProgress } from './trainer.js';
 
+function AppIcon({ name, className = 'appIcon' }) {
+  const common = { className, viewBox: '0 0 24 24', role: 'img', 'aria-hidden': 'true', focusable: 'false' };
+  switch (name) {
+    case 'profile':
+      return <svg {...common}><circle cx="12" cy="7.2" r="4" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M4.5 21c.8-4.6 3.4-7 7.5-7s6.7 2.4 7.5 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M8.2 7.2h7.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M12 3.2v8" stroke="currentColor" strokeWidth="1.2" opacity=".55"/></svg>;
+    case 'menu':
+      return <svg {...common}><path d="M5 7.5h14M5 12h14M5 16.5h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><circle cx="7" cy="7.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="17" cy="16.5" r="1.3" fill="currentColor"/></svg>;
+    case 'settings':
+      return <svg {...common}><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="m20.2 13.4-1.9 1.1.1 2.2-2.1 1.2-1.9-1.1-1.9 1.1-2.1-1.2.1-2.2-1.9-1.1v-2.8l1.9-1.1-.1-2.2 2.1-1.2 1.9 1.1 1.9-1.1 2.1 1.2-.1 2.2 1.9 1.1v2.8Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>;
+    case 'mini':
+      return <svg {...common}><rect x="4" y="5" width="16" height="14" rx="4" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M8 12h3M9.5 10.5v3M14.5 11.2h.01M17 13.1h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/><path d="M9 5V3.5M15 5V3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>;
+    case 'summary':
+      return <svg {...common}><path d="M7 3.8h8.4L19 7.4V20H7a2 2 0 0 1-2-2V5.8a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M15 4v4h4M8.5 11h7M8.5 14h7M8.5 17h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+    case 'catchbot':
+      return <svg {...common}><rect x="5" y="7" width="14" height="11" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7V4M9 4h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="9.3" cy="12.2" r="1.2" fill="currentColor"/><circle cx="14.7" cy="12.2" r="1.2" fill="currentColor"/><path d="M9 15.2h6M3.5 11v3M20.5 11v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>;
+    case 'bag':
+      return <svg {...common}><path d="M7 9V7.5a5 5 0 0 1 10 0V9" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M5.5 9h13l1 11h-15l1-11Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="M9 13h6M12 10.5v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+    case 'export':
+      return <svg {...common}><path d="M12 4v10m0 0 3.5-3.5M12 14l-3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 16v3h14v-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>;
+    case 'copy':
+      return <svg {...common}><rect x="8" y="8" width="11" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M5 16V6a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
+    case 'pc':
+      return <svg {...common}><rect x="4" y="5" width="16" height="12" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M9 20h6M12 17v3M8 9h8M8 12h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+    default:
+      return null;
+  }
+}
+
 function capName(name) {
   if (!name) return '';
   return name
@@ -3854,86 +3882,91 @@ bumpDexCaughtFromAny(
             <span className="sparkle">✨</span>
             <span>{hudShinyPct.toFixed(2)}%</span>
           </div>
-          {mode !== 'mini' ? (
-            <button
-              className="btnSmall topEmojiBtn"
-              onClick={() => setShowSettings(true)}
-              aria-label="Open Settings"
-              title="Settings"
-              type="button"
-            >
-              ⚙️
+          <button
+            className="btnSmall topEmojiBtn iconOnlyBtn"
+            onClick={() => setShowProfile(true)}
+            aria-label="Open Trainer Profile"
+            title="Trainer Profile"
+            type="button"
+          >
+            <AppIcon name="profile" />
+          </button>
+
+          <div className="topMenu topEmojiBtn">
+            <button className="btnSmall iconMenuBtn" type="button" aria-haspopup="menu" aria-label="Open activity menu" title="Activities">
+              <AppIcon name="menu" />
+              <span className="menuCaret">▾</span>
             </button>
-          ) : null}
-
-
-<button
-  className="btnSmall topEmojiBtn"
-  onClick={() => setShowProfile(true)}
-  aria-label="Open Trainer Profile"
-  title="Trainer Profile"
-  type="button"
->
-  👤
-</button>
-<button className="btnSmall topEmojiBtn" onClick={() => setShowCatchbot(true)} title="Catchbot" aria-label="Catchbot" type="button">🤖</button>
-<button className="btnSmall topEmojiBtn" onClick={() => setShowIdleCatching(true)} title="Idle Catching" aria-label="Idle Catching" type="button">👜</button>
-
-        {mode === 'mini' || mode === 'runview' ? (
-          <>
-            <button
-              className="runBadge topEmojiBtn"
-              title={mode === 'mini' ? 'Mini run info' : 'Viewing saved mini run'}
-              type="button"
-              onClick={() => {
-                if (mode === 'mini') setShowMiniInfo(true);
-              }}
-            >
-              {mode === 'mini' ? '🎮 Mini Run' : '🎮 Saved Run'}
-            </button>
-              <button className="btnSmall topEmojiBtn" onClick={returnToMain} title="Return to main save" type="button">🏠</button>
-          </>
-          ) : (
-            <>
-              <button
-                className="btnSmall topEmojiBtn"
-                onClick={() => (mode === 'mini' ? setShowMiniInfo(true) : setShowNewRun(true))}
-                title={mode === 'mini' ? 'Mini run info' : 'Start a new mini run'}
-                type="button"
-              >
-                🎮
-              </button>
-              <button className="btnSmall topEmojiBtn" onClick={() => setShowRunSummaries(true)} title="View mini run summaries" type="button">🗂️</button>
-              {hasActiveMini && (
-                <button className="btnSmall topEmojiBtn" onClick={resumeMiniRun} title="Resume active mini run" type="button">▶️</button>
+            <div className="topDropdown" role="menu">
+              {mode === 'mini' || mode === 'runview' ? (
+                <>
+                  <button className="dropdownItem" role="menuitem" type="button" onClick={() => { if (mode === 'mini') setShowMiniInfo(true); }}>
+                    <AppIcon name="mini" />
+                    <span>{mode === 'mini' ? 'Mini Run Info' : 'Saved Run'}</span>
+                  </button>
+                  <button className="dropdownItem" role="menuitem" type="button" onClick={returnToMain}>
+                    <span className="dropdownGlyph">⌂</span>
+                    <span>Return Home</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="dropdownItem" role="menuitem" type="button" onClick={() => setShowNewRun(true)}>
+                    <AppIcon name="mini" />
+                    <span>Mini Run</span>
+                  </button>
+                  <button className="dropdownItem" role="menuitem" type="button" onClick={() => setShowRunSummaries(true)}>
+                    <AppIcon name="summary" />
+                    <span>Mini Run Summaries</span>
+                  </button>
+                  {hasActiveMini ? (
+                    <button className="dropdownItem" role="menuitem" type="button" onClick={resumeMiniRun}>
+                      <span className="dropdownGlyph">▶</span>
+                      <span>Resume Mini Run</span>
+                    </button>
+                  ) : null}
+                </>
               )}
-            </>
-          )}
+              <button className="dropdownItem" role="menuitem" type="button" onClick={() => setShowCatchbot(true)}>
+                <AppIcon name="catchbot" />
+                <span>Catchbot</span>
+              </button>
+              <button className="dropdownItem" role="menuitem" type="button" onClick={() => setShowIdleCatching(true)}>
+                <AppIcon name="bag" />
+                <span>Grab Bag</span>
+              </button>
+            </div>
+          </div>
 
-
-          <button
-            className="pcButton"
-            onClick={exportPCToFile}
-            aria-label="Export PC to TXT"
-            title="Export PC to TXT"
-          >
-            <span className="pcText">Export</span>
-          </button>
-          <button
-            className="pcButton"
-            onClick={copyPCToClipboard}
-            aria-label="Copy PC to clipboard"
-            title="Copy PC to clipboard"
-          >
-            <span className="pcText">Copy</span>
-          </button>
+          <div className="topMenu topEmojiBtn">
+            <button className="btnSmall iconMenuBtn" type="button" aria-haspopup="menu" aria-label="Open settings menu" title="Settings">
+              <AppIcon name="settings" />
+              <span className="menuCaret">▾</span>
+            </button>
+            <div className="topDropdown topDropdownRight" role="menu">
+              {mode !== 'mini' ? (
+                <button className="dropdownItem" role="menuitem" type="button" onClick={() => setShowSettings(true)}>
+                  <AppIcon name="settings" />
+                  <span>Settings</span>
+                </button>
+              ) : null}
+              <button className="dropdownItem" role="menuitem" type="button" onClick={exportPCToFile}>
+                <AppIcon name="export" />
+                <span>Export PC</span>
+              </button>
+              <button className="dropdownItem" role="menuitem" type="button" onClick={copyPCToClipboard}>
+                <AppIcon name="copy" />
+                <span>Copy PC</span>
+              </button>
+            </div>
+          </div>
 
           <button
             className="pcButton"
             onClick={() => setShowPC(true)}
             aria-label="Open PC Box"
           >
-            <span className="pcIcon" />
+            <AppIcon name="pc" className="pcIconSvg" />
             <span className="pcText">PC</span>
           </button>
 
@@ -3947,7 +3980,7 @@ bumpDexCaughtFromAny(
     aria-label="Open Pokédex"
     type="button"
   >
-    📘
+    <AppIcon name="summary" />
   </button>
 
   <button
@@ -3958,7 +3991,7 @@ bumpDexCaughtFromAny(
     aria-label="Open Backpack"
     type="button"
   >
-    🎒 {save.moveTokens ?? 0}
+    <AppIcon name="bag" /> {save.moveTokens ?? 0}
   </button>
 </div>
 
@@ -3973,11 +4006,11 @@ bumpDexCaughtFromAny(
           aria-label="Backpack"
           type="button"
         >
-          <span className="railIcon">🎒</span>
+          <span className="railIcon"><AppIcon name="bag" /></span>
           <span className="railSub" aria-label="Move tokens">{save?.moveTokens ?? 0}</span>
         </button>
 
-        <button className="btnSmall railBtn" onClick={() => setShowDex(true)} title="Pokédex" aria-label="Pokédex" type="button">📘</button>
+        <button className="btnSmall railBtn" onClick={() => setShowDex(true)} title="Pokédex" aria-label="Pokédex" type="button"><AppIcon name="summary" /></button>
 
         {/* Mini-run controls mirror desktop behavior on mobile */}
         {mode === 'mini' || mode === 'runview' ? (
@@ -3991,25 +4024,25 @@ bumpDexCaughtFromAny(
                 if (mode === 'mini') setShowMiniInfo(true);
               }}
             >
-              🎮
+              <AppIcon name="mini" />
             </button>
-            <button className="btnSmall railBtn" onClick={returnToMain} title="Return to main save" aria-label="Return to main save" type="button">🏠</button>
+            <button className="btnSmall railBtn" onClick={returnToMain} title="Return to main save" aria-label="Return to main save" type="button"><span className="dropdownGlyph">⌂</span></button>
           </>
         ) : (
           <>
-            <button className="btnSmall railBtn" onClick={() => setShowNewRun(true)} title="Start new run" aria-label="Start new run" type="button">🎮</button>
-            <button className="btnSmall railBtn" onClick={() => setShowRunSummaries(true)} title="Run summaries" aria-label="Run summaries" type="button">🗂️</button>
+            <button className="btnSmall railBtn" onClick={() => setShowNewRun(true)} title="Start new run" aria-label="Start new run" type="button"><AppIcon name="mini" /></button>
+            <button className="btnSmall railBtn" onClick={() => setShowRunSummaries(true)} title="Run summaries" aria-label="Run summaries" type="button"><AppIcon name="summary" /></button>
             {hasActiveMini ? (
-              <button className="btnSmall railBtn" onClick={resumeMiniRun} title="Resume run" aria-label="Resume run" type="button">▶️</button>
+              <button className="btnSmall railBtn" onClick={resumeMiniRun} title="Resume run" aria-label="Resume run" type="button"><span className="dropdownGlyph">▶</span></button>
             ) : null}
           </>
         )}
 
-        <button className="btnSmall railBtn" onClick={() => setShowProfile(true)} title="Trainer profile" aria-label="Trainer profile" type="button">👤</button>
-        <button className="btnSmall railBtn" onClick={() => setShowCatchbot(true)} title="Catchbot" aria-label="Catchbot" type="button">🤖</button>
-        <button className="btnSmall railBtn" onClick={() => setShowIdleCatching(true)} title="Idle Catching" aria-label="Idle Catching" type="button">👜</button>
+        <button className="btnSmall railBtn" onClick={() => setShowProfile(true)} title="Trainer profile" aria-label="Trainer profile" type="button"><AppIcon name="profile" /></button>
+        <button className="btnSmall railBtn" onClick={() => setShowCatchbot(true)} title="Catchbot" aria-label="Catchbot" type="button"><AppIcon name="catchbot" /></button>
+        <button className="btnSmall railBtn" onClick={() => setShowIdleCatching(true)} title="Idle Catching" aria-label="Idle Catching" type="button"><AppIcon name="bag" /></button>
         {mode !== 'mini' ? (
-          <button className="btnSmall railBtn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" type="button">⚙️</button>
+          <button className="btnSmall railBtn" onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" type="button"><AppIcon name="settings" /></button>
         ) : null}
       </div>
 
